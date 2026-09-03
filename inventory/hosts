@@ -1,0 +1,2 @@
+[mqservers]
+qm1 ansible_host=<MQ_SERVER_IP> ansible_user=<SSH_USER>  ## user should add their own IP address and user name in <MQ_SERVER_IP> and <SSH_USER>

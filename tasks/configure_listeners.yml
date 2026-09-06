@@ -1,0 +1,27 @@
+---    
+    - name: load listener configuration
+      ansible.builtin.include_vars:
+        file: ../vars/listeners.yml
+    
+    
+    - name: Check listener status
+      ansible.builtin.shell: | 
+        echo "DIS LISTENER('{{ listener.name }}')" | 
+        sudo -u mqm {{ mq_dir }}/runmqsc {{ listener.host_qmgr }}
+      loop: "{{ mq_listeners }}"
+      loop_control: 
+        loop_var: listener
+      register: listener_check
+      failed_when: false
+      changed_when: false
+
+    - name: create MQ listeners 
+      ansible.builtin.shell: | 
+        echo "DEFINE LISTENER('{{ listener.name }}') TRPTYPE(TCP) PORT({{ listener.port}}) CONTROL({{ listener.control }})"|
+        sudo -u mqm {{ mq_dir }}/runmqsc {{ listener.host_qmgr }}
+      loop: "{{ mq_listeners }}"
+      loop_control: 
+        loop_var: listener
+        index_var: listener_index
+        label: "{{ listener.name }} on {{ listener.host_qmgr }}"
+      when: listener_check.results[listener_index].rc !=0

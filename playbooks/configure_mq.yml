@@ -10,76 +10,111 @@
 
   tasks:
 
+    - name: configure queue
+      ansible.builtin.include_tasks: 
+        file: ../tasks/configure_queues.yml
+    
+    - name: configure channel
+      ansible.builtin.include_tasks: 
+        file: ../tasks/configure_channels.yml
 
-    - name: check queue status
-      ansible.builtin.shell:
-        cmd: >
-          sudo -n -u mqm {{ mq_dir }}/runmqsc {{ queue.host_qmgr }}
-        stdin: |
-          DISPLAY QUEUE('{{ queue.name }}') MAXDEPTH
-      loop: "{{ mq_queues }}"
-      loop_control:
-        loop_var: queue
-      register: queue_check
-      changed_when: false
-      failed_when: false
+    - name: configure listener
+      ansible.builtin.include_tasks:
+        file: ../tasks/configure_listeners.yml
 
-    - name: Show current queue depth
-      ansible.builtin.debug:
-        msg: "{{ stdout_lines}}"
-      loop: "{{ queue_check.results }}"
-      loop_control:
-        label: "{{ queue.name }}"
+    - name: configure topics 
+      ansible.builtin.include_tasks:
+        file: ../tasks/configure_topics.yml
 
-    - name: Check channel status
-      ansible.builtin.shell: |
-        echo "DIS CHANNEL('{{ channel.name }}')" |
-        sudo -u mqm {{ mq_dir }}/runmqsc {{ channel.host_qmgr }}
-      loop: "{{ mq_channel }}"
-      loop_control:
-        loop_var: channel
-      register: channel_check
-      failed_when: false
-      changed_when: false
+    - name: configure mq_subscriptions 
+      ansible.builtin.include_tasks:
+        file: ../tasks/configure_subscriptions.yml
 
-    - name: Create Queues
-      ansible.builtin.shell: |
-        {% if queue.type == 'xmitq' %}
-        echo "DEFINE QL('{{ queue.name }}') MAXDEPTH({{ queue.max_depth }}) USAGE(XMITQ)"|
-        sudo -u mqm {{ mq_dir }}/runmqsc {{ queue.host_qmgr }}
 
-        {% elif queue.type == 'remote' %}
-        echo "DEFINE QREMOTE('{{ queue.name }}') RNAME('{{ queue.rname }}') RQMNAME('{{ queue.remote_qmgr }}') XMITQ('{{ queue.xmit_queue }}') " |
-        sudo -u mqm {{ mq_dir }}/runmqsc {{ queue.host_qmgr }}
+    # - name: check queue status
+    #   ansible.builtin.shell: |
+    #     echo "DIS QUEUE('{{ queue.name }}') MAXDEPTH" |
+    #     sudo -u mqm {{ mq_dir }}/runmqsc {{ queue.host_qmgr }}
+    #   loop: "{{ mq_queues }}"
+    #   loop_control:
+    #     loop_var: queue
+    #   register: queue_check
+    #   changed_when: false
+    #   failed_when: false
 
-        {% elif queue.type == 'alias' %}
-        echo "DEFINE QALIAS('{{ queue.name }}') TARGQ('{{ queue.target_queue }}')" |
-        sudo -u mqm {{ mq_dir }}/runmqsc {{ queue.host_qmgr}}
 
-        {% else %}
-        echo "DEFINE QL('{{ queue.name }}') MAXDEPTH({{ queue.max_depth }})" |
-        sudo -u mqm {{ mq_dir }}/runmqsc {{ queue.host_qmgr }}
-        {% endif %}
+    # - name: Check channel status
+    #   ansible.builtin.shell: |
+    #     echo "DIS CHANNEL('{{ channel.name }}')" |
+    #     sudo -u mqm {{ mq_dir }}/runmqsc {{ channel.host_qmgr }}
+    #   loop: "{{ mq_channel }}"
+    #   loop_control:
+    #     loop_var: channel
+    #   register: channel_check
+    #   failed_when: false
+    #   changed_when: false
 
-      loop: "{{ mq_queues }}"
-      loop_control:
-        loop_var: queue
-        index_var: queue_index
-        label: "{{ queue.name }} on {{ queue.host_qmgr }}"
-      when: queue_check.results[queue_index].rc != 0
+    # - name: Check listener status
+    #   ansible.builtin.shell: | 
+    #     echo "DIS LISTENER('{{ listener.name }}')" | 
+    #     sudo -u mqm {{ mq_dir }}/runmqsc {{ listener.host_qmgr }}
+    #   loop: "{{ mq_listeners }}"
+    #   loop_control: 
+    #     loop_var: listener
+    #   register: listener_check
+    #   failed_when: false
+    #   changed_when: false
 
-    - name: Create MQ Channel
-      ansible.builtin.shell: |
-        {%if channel.type == 'SDR' %}
-        echo "DEFINE CHANNEL('{{ channel.name }}') CHLTYPE({{ channel.type }}) CONNAME('{{ channel.target_host }}({{ channel.target_port }})') XMITQ('{{ channel.xmit_queue }}')" |
-        sudo -u mqm {{ mq_dir }}/runmqsc {{ channel.host_qmgr }}
-        {% else %}
-        echo "DEFINE CHANNEL('{{ channel.name }}') CHLTYPE({{ channel.type }})" |
-        sudo -u mqm {{ mq_dir }}/runmqsc {{ channel.host_qmgr }}
-        {% endif %}
-      loop: "{{ mq_channel }}"
-      loop_control:
-        loop_var: channel
-        index_var: channel_index
-        label: "{{ channel.name }} on {{ channel.host_qmgr }}"
-      when: channel_check.results[channel_index].rc !=0
+
+    # - name: Create Queues
+    #   ansible.builtin.shell: |
+    #     {% if queue.type == 'xmitq' %}
+    #     echo "DEFINE QL('{{ queue.name }}') MAXDEPTH({{ queue.max_depth }}) USAGE(XMITQ)"|
+    #     sudo -u mqm {{ mq_dir }}/runmqsc {{ queue.host_qmgr }}
+
+    #     {% elif queue.type == 'remote' %}
+    #     echo "DEFINE QREMOTE('{{ queue.name }}') RNAME('{{ queue.rname }}') RQMNAME('{{ queue.remote_qmgr }}') XMITQ('{{ queue.xmit_queue }}') " |
+    #     sudo -u mqm {{ mq_dir }}/runmqsc {{ queue.host_qmgr }}
+
+    #     {% elif queue.type == 'alias' %}
+    #     echo "DEFINE QALIAS('{{ queue.name }}') TARGQ('{{ queue.target_queue }}')" |
+    #     sudo -u mqm {{ mq_dir }}/runmqsc {{ queue.host_qmgr}}
+
+    #     {% else %}
+    #     echo "DEFINE QL('{{ queue.name }}') MAXDEPTH({{ queue.max_depth }})" |
+    #     sudo -u mqm {{ mq_dir }}/runmqsc {{ queue.host_qmgr }}
+    #     {% endif %}
+
+    #   loop: "{{ mq_queues }}"
+    #   loop_control:
+    #     loop_var: queue
+    #     index_var: queue_index
+    #     label: "{{ queue.name }} on {{ queue.host_qmgr }}"
+    #   when: queue_check.results[queue_index].rc != 0
+
+    # - name: Create MQ Channel
+    #   ansible.builtin.shell: |
+    #     {%if channel.type == 'SDR' %}
+    #     echo "DEFINE CHANNEL('{{ channel.name }}') CHLTYPE({{ channel.type }}) CONNAME('{{ channel.target_host }}({{ channel.target_port }})') XMITQ('{{ channel.xmit_queue }}')" |
+    #     sudo -u mqm {{ mq_dir }}/runmqsc {{ channel.host_qmgr }}
+    #     {% else %}
+    #     echo "DEFINE CHANNEL('{{ channel.name }}') CHLTYPE({{ channel.type }})" |
+    #     sudo -u mqm {{ mq_dir }}/runmqsc {{ channel.host_qmgr }}
+    #     {% endif %}
+    #   loop: "{{ mq_channel }}"
+    #   loop_control:
+    #     loop_var: channel
+    #     index_var: channel_index
+    #     label: "{{ channel.name }} on {{ channel.host_qmgr }}"
+    #   when: channel_check.results[channel_index].rc !=0
+
+    # - name: create MQ listeners 
+    #   ansible.builtin.shell: | 
+    #     echo "DEFINE LISTENER('{{ listener.name }}') TRPTYPE(TCP) PORT({{ listener.port}}) CONTROL({{ listener.control }})"|
+    #     sudo -u mqm {{ mq_dir }}/runmqsc {{ listener.host_qmgr }}
+    #   loop: "{{ mq_listeners }}"
+    #   loop_control: 
+    #     loop_var: listener
+    #     index_var: listener_index
+    #     label: "{{ listener.name }} on {{ listener.host_qmgr }}"
+    #   when: listener_check.results[listener_index].rc !=0

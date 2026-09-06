@@ -1,0 +1,25 @@
+---
+  - name: Load MQ mq_subscriptions
+    ansible.builtin.include_vars:
+      file: ../vars/subscriptions.yml 
+  
+  - name: check Subscriptions on QMGR 
+    ansible.builtin.shell: | 
+      echo "DIS SUB('{{ sub.name }}')" | sudo -u mqm {{ mq_dir }}/runmqsc {{ sub.host_qmgr }}
+    loop: "{{ mq_subscriptions }}"
+    loop_control:
+      loop_var: sub
+    register: sub_check
+    failed_when: false
+    changed_when: false
+
+  - name: Define Subscriptions on QMGR 
+    ansible.builtin.shell: |
+      echo " DEFINE SUB('{{ sub.name }}') TOPICSTR('{{ sub.topic_str}}') DEST('{{ sub.dest }}')" | 
+      sudo -u mqm {{ mq_dir }}/runmqsc {{sub.host_qmgr}}
+    loop: "{{ mq_subscriptions }}"
+    loop_control:
+      loop_var: sub
+      index_var: sub_index
+      label: "{{ sub.name }} on {{ sub.host_qmgr }}"
+    when: sub_check.results[sub_index].rc != 0

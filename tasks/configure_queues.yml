@@ -1,0 +1,41 @@
+---    
+    - name: load queue configuration
+      ansible.builtin.include_vars:
+        file: ../vars/queues.yml
+    
+    - name: check queue status
+      ansible.builtin.shell: |
+        echo "DIS QUEUE('{{ queue.name }}') MAXDEPTH" |
+        sudo -u mqm {{ mq_dir }}/runmqsc {{ queue.host_qmgr }}
+      loop: "{{ mq_queues }}"
+      loop_control:
+        loop_var: queue
+      register: queue_check
+      changed_when: false
+      failed_when: false
+
+
+    - name: Create Queues
+      ansible.builtin.shell: |
+        {% if queue.type == 'xmitq' %}
+        echo "DEFINE QL('{{ queue.name }}') MAXDEPTH({{ queue.max_depth }}) USAGE(XMITQ)"|
+        sudo -u mqm {{ mq_dir }}/runmqsc {{ queue.host_qmgr }}
+
+        {% elif queue.type == 'remote' %}
+        echo "DEFINE QREMOTE('{{ queue.name }}') RNAME('{{ queue.rname }}') RQMNAME('{{ queue.remote_qmgr }}') XMITQ('{{ queue.xmit_queue }}')" |
+        sudo -u mqm {{ mq_dir }}/runmqsc {{ queue.host_qmgr }}
+
+        {% elif queue.type == 'alias' %}
+        echo "DEFINE QALIAS('{{ queue.name }}') TARGQ('{{ queue.target_queue }}')" |
+        sudo -u mqm {{ mq_dir }}/runmqsc {{ queue.host_qmgr}}
+
+        {% else %}
+        echo "DEFINE QL('{{ queue.name }}') MAXDEPTH({{ queue.max_depth }})" |
+        sudo -u mqm {{ mq_dir }}/runmqsc {{ queue.host_qmgr }}
+        {% endif %}
+      loop: "{{ mq_queues }}"
+      loop_control:
+        loop_var: queue
+        index_var: queue_index
+        label: "{{ queue.name }} on {{ queue.host_qmgr }}"
+      when: queue_check.results[queue_index].rc != 0

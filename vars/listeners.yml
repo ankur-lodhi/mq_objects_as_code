@@ -1,0 +1,10 @@
+mq_listeners:
+  - name: LISTENER1
+    port: 1417
+    control: QMGR
+    host_qmgr: QM2
+  
+  - name: LISTENER1
+    port: 1416
+    control: QMGR
+    host_qmgr: QM1

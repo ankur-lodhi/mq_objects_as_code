@@ -1,0 +1,27 @@
+---
+  - name: load topic configuration
+    ansible.builtin.include_vars:
+      file: ../vars/topics.yml
+
+  - name: Check topics on Queue managers
+    ansible.builtin.shell: |
+      echo "DIS TOPIC('{{ topic.name }}')" |
+      sudo -u mqm {{ mq_dir }}/runmqsc {{topic.host_qmgr}}
+    loop: "{{ mq_topics }}"
+    loop_control:
+      loop_var: topic
+    register: topic_check
+    failed_when: false
+    changed_when: false
+
+  - name: Creat topics on Queue manager
+    ansible.builtin.shell: |
+      echo "DEFINE TOPIC('{{ topic.name }}') TOPICSTR('{{ topic.topic_str }}')" | 
+      sudo -u mqm {{ mq_dir }}/runmqsc {{ topic.host_qmgr }}
+    loop: "{{ mq_topics }}"
+    loop_control:
+      loop_var: topic
+      index_var: topic_index
+      label: "{{ topic.name }} on {{ topic.host_qmgr }}"
+    when: topic_check.results[topic_index].rc != 0
+    

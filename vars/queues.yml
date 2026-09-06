@@ -37,14 +37,7 @@ mq_queues:
     host_qmgr: QM1
     target_queue: TESTQ1
 
-mq_channel:
-  - name: QM1.TO.QM2
-    type: SDR
-    host_qmgr: QM1
-    target_host: "<Target_host>"
-    target_port: 1417
-    xmit_queue: TESTQ4
-
-  - name: QM1.TO.QM2
-    type: RCVR
+  - name: PAYMENT_SUB_QUEUE
+    type: local
     host_qmgr: QM2
+    max_depth: 2000

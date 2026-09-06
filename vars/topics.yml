@@ -1,0 +1,8 @@
+mq_topics:
+  - name: TOPIC_QM1
+    topic_str: /order/events
+    host_qmgr: QM1 
+
+  - name: TOPIC_QM2
+    topic_str: /payments/events
+    host_qmgr: QM2 

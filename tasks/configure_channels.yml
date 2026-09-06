@@ -1,0 +1,31 @@
+    - name: load queue defination
+      ansible.builtin.include_vars:
+        file: ../vars/channels.yml
+    
+    
+    - name: Check channel status
+      ansible.builtin.shell: |
+        echo "DIS CHANNEL('{{ channel.name }}')" |
+        sudo -u mqm {{ mq_dir }}/runmqsc {{ channel.host_qmgr }}
+      loop: "{{ mq_channel }}"
+      loop_control:
+        loop_var: channel
+      register: channel_check
+      failed_when: false
+      changed_when: false
+
+    - name: Create MQ Channel
+      ansible.builtin.shell: |
+        {%if channel.type == 'SDR' %}
+        echo "DEFINE CHANNEL('{{ channel.name }}') CHLTYPE({{ channel.type }}) CONNAME('{{ channel.target_host }}({{ channel.target_port }})') XMITQ('{{ channel.xmit_queue }}')" |
+        sudo -u mqm {{ mq_dir }}/runmqsc {{ channel.host_qmgr }}
+        {% else %}
+        echo "DEFINE CHANNEL('{{ channel.name }}') CHLTYPE({{ channel.type }})" |
+        sudo -u mqm {{ mq_dir }}/runmqsc {{ channel.host_qmgr }}
+        {% endif %}
+      loop: "{{ mq_channel }}"
+      loop_control:
+        loop_var: channel
+        index_var: channel_index
+        label: "{{ channel.name }} on {{ channel.host_qmgr }}"
+      when: channel_check.results[channel_index].rc !=0

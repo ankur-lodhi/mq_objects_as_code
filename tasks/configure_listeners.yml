@@ -25,3 +25,25 @@
         index_var: listener_index
         label: "{{ listener.name }} on {{ listener.host_qmgr }}"
       when: listener_check.results[listener_index].rc !=0
+
+    - name: check listener runtime status 
+      ansible.builtin.shell: | 
+        echo " DIS LSSTATUS('{{ listener.name }}')" | sudo -u mqm {{ mq_dir }}/runmqsc {{ listener.host_qmgr }}
+      loop: "{{ mq_listeners }}"
+      loop_control: 
+        loop_var: listener
+        index_var: listener_index
+        label: "{{ listener.name }} on {{ listener.host_qmgr }}"
+      register: listener_status
+      changed_when: false
+      failed_when: false
+
+    - name: start listeners 
+      ansible.builtin.shell: | 
+        echo " START LISTENER('{{ listener.name }}') " | sudo -u mqm {{ mq_dir }}/runmqsc {{ listener.host_qmgr }}
+      loop: "{{ mq_listeners }}"
+      loop_control:
+        loop_var: listener
+        index_var: listener_index
+        label: "{{ listener.name }} on {{ listener.host_qmgr }}"
+      when: "'AMQ8147E' in listener_status.results[listener_index].stdout"

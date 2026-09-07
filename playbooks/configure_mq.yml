@@ -30,6 +30,15 @@
       ansible.builtin.include_tasks:
         file: ../tasks/configure_subscriptions.yml
 
+    - name: configure auth records 
+      ansible.builtin.include_tasks:
+        file: ../tasks/configure_authrecords.yml
+
+    - name: configure CHLAUTH records
+      ansible.builtin.include_tasks:
+        file: ../tasks/configure_chlauth.yml
+    
+
 
     # - name: check queue status
     #   ansible.builtin.shell: |

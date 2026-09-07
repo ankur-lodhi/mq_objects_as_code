@@ -1,0 +1,49 @@
+---
+  - name: Load CHLAUTH records
+    ansible.builtin.include_vars:
+      file: ../vars/mq_chlauth.yml
+
+  - name: check CHLAUTH records
+    ansible.builtin.shell: | 
+      {% if rule.type == 'BLOCKUSER' %}
+      echo "DIS CHLAUTH('{{ rule.channel }}') TYPE(BLOCKUSER) USERLIST('{{rule.userlist}}')" | 
+      sudo -u mqm {{ mq_dir }}/runmqsc {{ rule.host_qmgr }}
+
+      {% elif rule.type == 'SSLPEERMAP' %}
+      echo "DIS CHLAUTH('{{ rule.channel }}') TYPE(SSLPEERMAP) SSLPEER('{{ rule.sslpeer }}')" | 
+      sudo -u mqm {{ mq_dir }}/runmqsc {{ rule.host_qmgr }}
+      {% endif %}
+    loop: "{{ mq_chlauth }}"
+    loop_control: 
+      loop_var: rule 
+      label: "{{ rule.type }} {{ rule.channel }} on {{ rule.host_qmgr }}"
+    register: chlauth_check
+    changed_when: false
+    failed_when: false
+
+  - name: implement CHLAUTH records
+    ansible.builtin.shell: | 
+      {% if rule.type == 'BLOCKUSER' %}
+      echo "SET CHLAUTH('{{ rule.channel }}') TYPE(BLOCKUSER) USERLIST('{{ rule.userlist }}') ACTION({{ rule.action }})" | 
+      sudo -u mqm {{ mq_dir }}/runmqsc {{ rule.host_qmgr }}
+
+      {% elif rule.type == 'SSLPEERMAP' %}
+      echo "SET CHLAUTH('{{ rule.channel }}') TYPE(SSLPEERMAP) SSLPEER('{{ rule.sslpeer }}') USERSRC({{ rule.usersrc }}) ACTION({{ rule.action }})" | 
+      sudo -u mqm {{ mq_dir }}/runmqsc {{ rule.host_qmgr }}
+      {% endif %}
+    loop: "{{ mq_chlauth }}"
+    loop_control:
+      loop_var: rule 
+      index_var: rule_index
+      label: "{{ rule.type }} {{ rule.channel }} on {{ rule.host_qmgr }}"
+    when: "'AMQ8878I' not in chlauth_check.results[rule_index].stdout"
+    register: chlauth_create
+
+  - name: Refresh Security on queue managers
+    ansible.builtin.shell: | 
+      echo "REFRESH SECURITY TYPE(SSL)" | 
+      sudo -u mqm {{ mq_dir }}/runmqsc {{ qmgr }}
+    loop: "{{ mq_chlauth | map(attribute= 'host_qmgr') | unique | list }}"
+    loop_control: 
+      loop_var: qmgr
+      label: "{{ qmgr }}"

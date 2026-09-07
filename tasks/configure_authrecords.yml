@@ -1,0 +1,13 @@
+---
+  - name: load MQ authority records
+    ansible.builtin.include_vars:
+      file: ../vars/mq_auth_records.yml
+  
+  - name: configure auth records
+    ansible.builtin.shell: | 
+      echo "SET AUTHREC PROFILE ('{{ auth.profile }}') OBJTYPE({{ auth.objtype }}) PRINCIPAL('{{ auth.principal }}') AUTHADD( {{ auth.authadd | join(',') }})" | 
+      sudo -u mqm {{ mq_dir }}/runmqsc {{ auth.host_qmgr }}
+    loop: "{{ mq_auth_records }}"
+    loop_control:
+      loop_var: auth
+      label: "{{ auth.principal }} -> {{ auth.objtype }} {{ auth.profile }} on {{ auth.host_qmgr }}"

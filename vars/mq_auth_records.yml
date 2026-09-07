@@ -1,0 +1,25 @@
+mq_auth_records:
+  - profile: TESTQ1
+    objtype: QUEUE
+    principal: appuser
+    authadd:
+      - GET
+      - PUT
+      - INQ
+    host_qmgr: QM1
+
+  - profile: TOPIC_QM1
+    objtype: TOPIC
+    principal: appuser
+    authadd:
+      - PUB
+      - SUB
+    host_qmgr: QM1
+
+  - profile: QM1
+    objtype: QMGR
+    principal: appuser
+    authadd:
+      - CONNECT
+      - INQ
+    host_qmgr: QM1

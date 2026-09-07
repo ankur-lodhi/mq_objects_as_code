@@ -18,23 +18,20 @@ Current workflow
 mq_objects.yml
 
       |
-
       v
 
 Ansible
 
       |
-
       v
-
 Check MQ object
-
       +-------------------+
       |                   |
    Exists              Missing
       |                   |
       v                   v
     Skip                Create
+
 Key Design
 
 Each MQ object contains a host_qmgr attribute.

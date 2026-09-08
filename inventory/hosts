@@ -1,2 +1,0 @@
-[mqservers]
-qm1 ansible_host=<qm host server ip > ansible_user=<ssh username>

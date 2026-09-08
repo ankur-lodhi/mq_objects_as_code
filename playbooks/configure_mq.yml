@@ -10,9 +10,18 @@
 
   tasks:
 
+    - name: Validate queue configuration
+      ansible.builtin.include_tasks: 
+        file: ../validation/queue_validation.yml
+
+
     - name: configure queue
       ansible.builtin.include_tasks: 
         file: ../tasks/configure_queues.yml
+
+    - name: validate channel configuration
+      ansible.builtin.include_tasks:
+        file: ../validation/validate_channels.yml
     
     - name: configure channel
       ansible.builtin.include_tasks: 

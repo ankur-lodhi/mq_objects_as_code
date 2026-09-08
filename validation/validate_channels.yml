@@ -1,0 +1,71 @@
+---
+  - name: Load channel configuration. 
+    ansible.builtin.include_vars:
+      file: ../vars/channels.yml
+
+  - name: Validate required channel attribute
+    ansible.builtin.assert:
+      that:
+        - channel.name is defined
+        - channel.name | length >0
+        - channel.name | length <= 20
+        - channel.type is defined
+        - channel.host_qmgr is defined
+        - channel.host_qmgr | length >0
+        - channel.host_qmgr | length <= 20
+      fail_msg: "Channel is missing a required attribute or channel name is longer then 20 characters: {{ channel }}"
+    loop: "{{ mq_channel }}"
+    loop_control:
+      loop_var: channel
+      label: "{{ channel.name | default('unnamed') }}"
+
+  - name: Validate channel types
+    ansible.builtin.assert:
+      that:
+        - channel.type in ['SDR', 'RCVR']
+      fail_msg: "Unsupported channel type for channel: {{ channel.name }} {{ channel.type }}"
+    loop: "{{ mq_channel }}"
+    loop_control:
+      loop_var: channel
+      label: "{{ channel.name | default('unnamed') }}"
+  
+  - name: Validate Sender channel
+    ansible.builtin.assert:
+      that:
+        - channel.target_host is defined
+        - channel.target_host | length > 0
+        - channel.target_port is defined
+        - channel.target_port is integer
+        - channel.target_port >=1024 
+        - channel.target_port <= 65535
+        - channel.target_port != 1414
+        - channel.xmit_queue is defined
+        - channel.xmit_queue | length > 0
+        - channel.xmit_queue | length <= 48
+      fail_msg: "Channel {{ channel.name }} is missing a required attirbute or channel name is longer then 20 characters"
+    loop: "{{ mq_channel }}"
+    loop_control:
+      loop_var: channel
+      label: "{{ channel.name | default('unnamed') }}"
+    when: channel.type == 'SDR'
+
+  - name: Validate duplicate channel configurations
+    ansible.builtin.assert:
+      that:
+        - >-
+          mq_channel
+          | selectattr('name', 'equalto', channel.name)
+          | selectattr('type', 'equalto', channel.type)
+          | selectattr('host_qmgr', 'equalto', channel.host_qmgr)
+          | list
+          | length == 1
+      fail_msg: >-
+        Duplicate channel configuration found:
+        channel: {{ channel.name }}
+        type: {{ channel.type }}
+        Queue Manager: {{ channel.host_qmgr }}
+    loop: "{{ mq_channel }}"
+    loop_control:
+      loop_var: channel
+      label: "{{ channel.name | default('unnamed') }}"  
+

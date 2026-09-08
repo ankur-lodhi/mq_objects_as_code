@@ -26,7 +26,7 @@
         sudo -u mqm {{ mq_dir }}/runmqsc {{ queue.host_qmgr }}
 
         {% elif queue.type == 'alias' %}
-        echo "DEFINE QALIAS('{{ queue.name }}') TARGQ('{{ queue.target_queue }}')" |
+        echo "DEFINE QALIAS('{{ queue.name }}') TARGET('{{ queue.target }}') TARGETTYPE({{ queue.target_type }})" |
         sudo -u mqm {{ mq_dir }}/runmqsc {{ queue.host_qmgr}}
 
         {% else %}

@@ -35,9 +35,11 @@ mq_queues:
   - name: ALIAS.Q1
     type: alias
     host_qmgr: QM1
-    target_queue: TESTQ1
+    target: TESTQ1
+    target_type: QUEUE
 
   - name: PAYMENT_SUB_QUEUE
     type: local
     host_qmgr: QM2
     max_depth: 2000
+

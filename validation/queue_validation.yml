@@ -1,0 +1,87 @@
+---
+  - name: loading MQ queue configuration. 
+    ansible.builtin.include_vars:
+      file: ../vars/queues.yml
+  
+  - name: validate required queue attributes
+    ansible.builtin.assert:
+      that: 
+        - queue.name is defined
+        - queue.name | length > 0
+        - queue.name | length <= 48
+        - queue.type is defined
+        - queue.host_qmgr is defined
+        - queue.host_qmgr | length > 0 
+        - queue.host_qmgr | length <= 48
+      fail_msg: "Queue is missing a required attribute or queue name is longer then 48 characters: {{ queue }}"
+    loop: "{{ mq_queues }}"
+    loop_control:
+      loop_var: queue
+      label: "{{ queue.name | default ('unnamed') }}"
+
+
+  - name: validate Queue type
+    ansible.builtin.assert: 
+      that: 
+        - queue.type in ['local', 'xmitq', 'remote', 'alias']
+      fail_msg: "Unsupported queue type for {{ queue.name }}: {{ queue.type }}"
+    loop: "{{ mq_queues }}"
+    loop_control:
+      loop_var: queue
+      label: "{{ queue.name | default('unnamed') }}"
+
+# Remote queues can technically be defined without RNAME, RQMNAME or XMITQ.
+# These attributes are validated by automation to standardize regular BAU requests.
+# Any special remote queue requirements should be handled by the MQ administrator.
+# RNAME may also be explicitly defined with an empty value.
+
+  - name: validate Remote queues
+    ansible.builtin.assert:
+      that: 
+        - queue.remote_qmgr is defined
+        - queue.xmit_queue is defined
+        - queue.rname is defined
+        - queue.xmit_queue | length > 0
+        - queue.xmit_queue | length <= 48
+        - queue.remote_qmgr | length > 0 
+        - queue.remote_qmgr | length <= 48
+      fail_msg: "Remote Queue {{ queue.name }} requires a remote_qmgr and xmit_queue"
+    loop: "{{ mq_queues }}"
+    loop_control:
+      loop_var: queue
+      label: "{{ queue.name | default('unnamed') }}"
+    when: queue.type == 'remote'
+
+  - name: validate Alias queues
+    ansible.builtin.assert:
+      that: 
+        - queue.target is defined
+        - queue.target | length > 0
+        - queue.target | length <= 48
+      fail_msg: " Alias queue {{ queue.name }} requires target"
+    loop: "{{ mq_queues }}"
+    loop_control:
+      loop_var: queue
+      label: "{{ queue.name | default('unnamed') }}"
+    when: queue.type == 'alias'
+
+
+  - name: check for duplicat queue configuations
+    ansible.builtin.assert:
+      that:
+        - queue_keys | length == queue_keys | unique | length
+      fail_msg: "Duplicate Queue defination found. Duplicate key {{ item }}"
+    vars: 
+      queue_keys: >-
+        {{
+          mq_queues
+          |map(attribute='type')
+          |zip(mq_queues | map(attribute='name'))
+          |zip(mq_queues | map(attribute='host_qmgr'))
+          |map('flatten')
+          |map('join','|')
+          |list
+        }}
+    loop: "{{ queue_keys }}"
+    loop_control:
+      loop_var: item

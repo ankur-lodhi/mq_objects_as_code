@@ -2,10 +2,14 @@ mq_channel:
   - name: QM1.TO.QM2
     type: SDR
     host_qmgr: QM1
-    target_host: <target qmgr IP>
+    target_host: <target host IP>
     target_port: 1417
     xmit_queue: TESTQ4
 
   - name: QM1.TO.QM2
     type: RCVR
     host_qmgr: QM2
+
+
+
+

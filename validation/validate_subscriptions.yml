@@ -1,0 +1,45 @@
+---
+  - name: loading Subscription configurations
+    ansible.builtin.include_vars:
+      file: ../vars/subscriptions.yml
+
+  - name: validating Subscription configurations
+    ansible.builtin.assert:
+      that:
+        - sub.name is defined
+        - sub.name | length > 0
+        - sub.name | length <= 10240
+        - sub.dest is defined
+        - sub.dest | length > 0
+        - sub.dest | length <= 48
+        - sub.topic_str is defined
+        - sub.topic_str | length >0
+        - sub.topic_str | length <= 10240
+        - sub.host_qmgr is defined
+        - sub.host_qmgr | length > 0
+        - sub.host_qmgr | length <= 20
+      fail_msg: " Subscription {{ sub.name }} is missing a required attribute or provided attribute length doesn't meet the valid criteria"
+    loop: "{{ mq_subscriptions }}"
+    loop_control:
+      loop_var: sub
+      label: "{{ sub.name | default('unnamed') }}"
+
+  - name: Validating Duplicate configurations
+    ansible.builtin.assert:
+      that: 
+        - >-
+          mq_subscriptions
+          | selectattr('name', 'equalto', sub.name )
+          | selectattr('topic_str', 'equalto', sub.topic_str)
+          | selectattr('host_qmgr', 'equalto', sub.host_qmgr)
+          | list
+          | length == 1
+      fail_msg: >-
+        Duplicate Subscription configuration found:
+        Subscription Name : {{ sub.name }}
+        Topic String : {{ sub.topic_str }}
+        Host Queue manager : {{ sub.host_qmgr }}
+    loop: "{{ mq_subscriptions }}"
+    loop_control:
+      loop_var: sub
+      label: "{{ sub.name | default('unnamed') }}"

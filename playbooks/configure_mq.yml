@@ -27,13 +27,25 @@
       ansible.builtin.include_tasks: 
         file: ../tasks/configure_channels.yml
 
+    - name: validate listener configurations
+      ansible.builtin.include_tasks:
+        file: ../validation/validate_listeners.yml
+
     - name: configure listener
       ansible.builtin.include_tasks:
         file: ../tasks/configure_listeners.yml
 
+    - name: Validate topic configurations
+      ansible.builtin.include_tasks: 
+        file: ../validation/validate_topics.yml
+
     - name: configure topics 
       ansible.builtin.include_tasks:
         file: ../tasks/configure_topics.yml
+
+    - name: validate Subscription configurations
+      ansible.builtin.include_tasks:
+        file: ../validation/validate_subscriptions.yml
 
     - name: configure mq_subscriptions 
       ansible.builtin.include_tasks:

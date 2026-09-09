@@ -1,0 +1,43 @@
+---
+  - name: load Topic configurations
+    ansible.builtin.include_vars:
+      file: ../vars/topics.yml
+  
+
+  - name: Validate topic configurations
+    ansible.builtin.assert:
+      that: 
+        - topic.name is defined
+        - topic.name | length > 0 
+        - topic.name | length <= 48
+        - topic.topic_str is defined
+        - topic.topic_str | length > 0 
+        - topic.topic_str | length <= 10240
+        - topic.host_qmgr is defined
+        - topic.host_qmgr | length >0
+        - topic.host_qmgr | length <= 20
+      fail_msg: " Topic {{ topic.name }} is missing a required attribute, or host QMGR name length is not within the valid limit"
+    loop: "{{ mq_topics }}"
+    loop_control:
+      loop_var: topic
+      label: "{{ topic.name | default('unnamed') }}"
+
+  - name: Validate Duplicate topic configurations
+    ansible.builtin.assert:
+      that:
+        - >-
+          mq_topics
+          | selectattr('name', 'equalto', topic.name)
+          | selectattr('topic_str', 'equalto', topic.topic_str)
+          | selectattr('host_qmgr', 'equalto', topic.host_qmgr)
+          | list
+          | length == 1
+      fail_msg: >-
+        Duplicate Topic configuration found:
+        Topic: {{ topic.name }}
+        Topic String: {{ topic.topic_str }}
+        Queue Manager: {{ topic.host_qmgr }}
+    loop: "{{ mq_topics }}"
+    loop_control:
+      loop_var: topic
+      label: "{{ topic.name | default('unnamed') }}"

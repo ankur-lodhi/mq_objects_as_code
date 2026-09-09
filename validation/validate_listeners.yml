@@ -1,0 +1,46 @@
+---
+  - name: loading listener configuration
+    ansible.builtin.include_vars:
+      file: ../vars/listeners.yml
+
+  - name: Validate listener configuration
+    ansible.builtin.assert:
+      that:
+        - listener.name is defined
+        - listener.name | length >0
+        - listener.name | length <=48
+        - listener.port is defined
+        - listener.port is integer
+        - listener.port >=1024 
+        - listener.port <= 65535
+        - listener.port != 1414
+        - listener.control is defined
+        - listener.host_qmgr is defined
+        - listener.host_qmgr | length >0
+        - listener.host_qmgr | length <=20
+        - listener.host_address is defined
+        - listener.host_address | length >0
+      fail_msg: "Listener {{ listener.name }} is missing a required attribute or value length is not within the valid limit."
+    loop: "{{ mq_listeners }}"
+    loop_control:
+      loop_var: listener 
+      label: "{{ listener.name | default('unnamed') }}"
+
+  - name: Validate duplicate configuration
+    ansible.builtin.assert:
+      that: 
+        - >-
+          mq_listeners
+          | selectattr('port', 'equalto', listener.port)
+          | selectattr('host_address', 'equalto', listener.host_address)
+          | list
+          | length == 1
+      fail_msg: >-
+        Duplicate listener configuration found:
+        Name: {{ listener.name }}
+        port: {{ listener.port }}
+        host_address: {{ listener.host_address }}
+    loop: "{{ mq_listeners }}"
+    loop_control:
+      loop_var: listener
+      label: "{{ listener.name | default('unnamed') }}"

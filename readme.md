@@ -6,6 +6,8 @@ IBM MQ Objects as Code is an open-source Ansible project designed to make IBM MQ
 
 Instead of manually creating and maintaining MQ objects on individual queue managers, define the desired configuration in simple YAML and let Ansible perform the deployment.
 
+![IBM MQ Objects as Code](docs/images/mq-objects-as-code-hero.png)
+
 ---
 
 ## Why IBM MQ Objects as Code?
@@ -53,6 +55,8 @@ The approach is intentionally simple:
          ▼
     MQ Objects
 ```
+
+![MQ Objects as Code Architecture](docs/images/mq-objects-as-code-architecture.png)
 
 The administrator describes **what the MQ environment should look like**.
 

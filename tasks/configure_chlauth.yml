@@ -1,7 +1,7 @@
 ---
   - name: Load CHLAUTH records
     ansible.builtin.include_vars:
-      file: ../vars/mq_chlauth.yml
+      file: ../objects/{{ inventory_hostname }}/mq_chlauth.yml
 
   - name: check CHLAUTH records
     ansible.builtin.shell: | 

@@ -1,7 +1,7 @@
 ---
   - name: Load MQ mq_subscriptions
     ansible.builtin.include_vars:
-      file: ../vars/subscriptions.yml 
+      file: ../objects/{{ inventory_hostname }}/subscriptions.yml 
   
   - name: check Subscriptions on QMGR 
     ansible.builtin.shell: | 

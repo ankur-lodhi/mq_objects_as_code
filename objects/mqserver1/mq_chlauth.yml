@@ -1,0 +1,28 @@
+---
+mq_chlauth:
+
+  - channel: '*'
+    type: BLOCKUSER
+    userlist: '*mqadmin'
+    action: ADD
+    host_qmgr: QM1
+
+  - channel: '*'
+    type: SSLPEERMAP
+    usersrc: NOACCESS
+    action: ADD
+    sslpeer: 'CN=*'
+    host_qmgr: QM1
+
+  - channel: '*'
+    type: BLOCKUSER
+    userlist: '*mqadmin'
+    action: ADD
+    host_qmgr: QM2
+
+  - channel: '*'
+    type: SSLPEERMAP
+    usersrc: NOACCESS
+    sslpeer: 'CN=*'
+    action: ADD
+    host_qmgr: QM2

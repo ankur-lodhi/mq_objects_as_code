@@ -1,0 +1,45 @@
+mq_queues:
+  - name: TESTQ1
+    type: local
+    host_qmgr: QM1
+    max_depth: 5000
+
+  - name: TESTQ2
+    type: local
+    host_qmgr: QM1
+    max_depth: 1000
+
+
+  - name: TESTQ3
+    type: local
+    host_qmgr: QM1
+    max_depth: 1000
+
+  - name: TESTQ4
+    type: xmitq
+    host_qmgr: QM1
+    max_depth: 1500
+
+  - name: TESTQ5
+    type: xmitq
+    host_qmgr: QM1
+    max_depth: 2500
+
+  - name: REMOTE.Q1
+    type: remote
+    host_qmgr: QM1
+    rname: TESTQ1.QM2
+    remote_qmgr: QM2
+    xmit_queue: TESTQ4
+
+  - name: ALIAS.Q1
+    type: alias
+    host_qmgr: QM1
+    target: TESTQ1
+    target_type: QUEUE
+
+  - name: PAYMENT_SUB_QUEUE
+    type: local
+    host_qmgr: QM2
+    max_depth: 2000
+

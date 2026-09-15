@@ -1,7 +1,7 @@
 ---    
     - name: load queue configuration
       ansible.builtin.include_vars:
-        file: ../vars/queues.yml
+        file: ../objects/{{ inventory_hostname }}/queues.yml
     
     - name: check queue status
       ansible.builtin.shell: |

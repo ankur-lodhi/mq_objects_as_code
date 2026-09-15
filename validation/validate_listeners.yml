@@ -1,7 +1,7 @@
 ---
   - name: loading listener configuration
     ansible.builtin.include_vars:
-      file: ../vars/listeners.yml
+      file: ../objects/{{ inventory_hostname }}/listeners.yml
 
   - name: Validate listener configuration
     ansible.builtin.assert:
@@ -44,3 +44,4 @@
     loop_control:
       loop_var: listener
       label: "{{ listener.name | default('unnamed') }}"
+      

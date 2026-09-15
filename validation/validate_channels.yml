@@ -1,7 +1,7 @@
 ---
   - name: Load channel configuration. 
     ansible.builtin.include_vars:
-      file: ../vars/channels.yml
+      file: ../objects/{{ inventory_hostname }}/channels.yml
 
   - name: Validate required channel attribute
     ansible.builtin.assert:

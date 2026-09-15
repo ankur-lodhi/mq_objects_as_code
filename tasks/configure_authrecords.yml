@@ -1,7 +1,7 @@
 ---
   - name: load MQ authority records
     ansible.builtin.include_vars:
-      file: ../vars/mq_auth_records.yml
+      file: ../objects/{{ inventory_hostname }}/mq_auth_records.yml
   
   - name: configure auth records
     ansible.builtin.shell: | 

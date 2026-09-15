@@ -1,7 +1,7 @@
 ---
   - name: loading Subscription configurations
     ansible.builtin.include_vars:
-      file: ../vars/subscriptions.yml
+      file: ../objects/{{ inventory_hostname }}/subscriptions.yml
 
   - name: validating Subscription configurations
     ansible.builtin.assert:

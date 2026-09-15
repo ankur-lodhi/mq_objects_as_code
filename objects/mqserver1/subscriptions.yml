@@ -1,0 +1,11 @@
+mq_subscriptions:
+  - name: ORDER.SUB
+    topic_str: /order/events
+    dest: TESTQ1
+    host_qmgr: QM1
+
+  - name: PAYMENT.SUB
+    topic_str: /payments/events
+    dest: PAYMENT_SUB_QUEUE
+    host_qmgr: QM2
+

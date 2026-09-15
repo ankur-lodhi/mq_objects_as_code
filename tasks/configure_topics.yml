@@ -1,7 +1,7 @@
 ---
   - name: load topic configuration
     ansible.builtin.include_vars:
-      file: ../vars/topics.yml
+      file: ../objects/{{ inventory_hostname }}/topics.yml
 
   - name: Check topics on Queue managers
     ansible.builtin.shell: |

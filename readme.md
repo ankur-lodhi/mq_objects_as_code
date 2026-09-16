@@ -1,393 +1,567 @@
 # IBM MQ Objects as Code
 
-**Manage IBM MQ objects using YAML and Ansible.**
+IBM MQ Objects as Code is an Ansible-based automation project for managing IBM MQ objects using YAML configuration and native MQSC commands.
 
-IBM MQ Objects as Code is an open-source Ansible project designed to make IBM MQ administration more **consistent, repeatable, version-controlled, and automation-friendly**.
+The project follows a simple principle:
 
-Instead of manually creating and maintaining MQ objects on individual queue managers, define the desired configuration in simple YAML and let Ansible perform the deployment.
+Define the MQ objects you want in YAML, let Ansible check what already exists, and create only what is missing.
+
+The goal is to make IBM MQ object configuration easier to manage, review, version-control, and reproduce without introducing unnecessary abstraction around standard MQ administration.
 
 ![IBM MQ Objects as Code](docs/images/mq-objects-as-code-hero.png)
 
----
+# Why this project?
 
-## Why IBM MQ Objects as Code?
+Enterprise IBM MQ environments can contain hundreds or thousands of MQ objects across many servers and Queue Managers. Managing these objects manually can make it difficult to track what should exist, where it belongs, and how configuration can be reproduced consistently.
 
-IBM MQ environments can contain hundreds or thousands of queues, channels, listeners, and other configuration objects.
-
-Traditionally, these objects are often created or modified manually using MQSC commands or administrative tools.
-
-This creates common challenges:
-
-* Configuration differences between environments
-* Manual errors
-* Difficult change tracking
-* Repetitive administrative work
-* Difficult rollback
-* Limited visibility into configuration history
-* Inconsistent object creation across MQ environments
-
-**Infrastructure as Code provides a better approach.**
-
-With this project, MQ configuration can be stored in Git, reviewed, version-controlled, validated, and deployed using Ansible.
-
----
+This project represents MQ configuration as code while keeping the configuration familiar to MQ administrators. YAML describes the desired objects and Ansible performs the required MQ administration using MQSC commands.
 
 # The Concept
 
-The approach is intentionally simple:
+The automation is server-scoped. Each MQ server has its own directory under objects/, containing configuration files for the object types required on that server.
 
-```text
-        YAML
-         │
-         ▼
-   Configuration
-      Model
-         │
-         ▼
-     Validation
-         │
-         ▼
-       Ansible
-         │
-         ▼
-      IBM MQ
-         │
-         ▼
-    MQ Objects
-```
+objects/
+├── mqserver1/
+│   ├── queues.yml
+│   ├── channels.yml
+│   ├── listeners.yml
+│   ├── topics.yml
+│   ├── subscriptions.yml
+│   ├── mq_auth_records.yml
+│   └── mq_chlauth.yml
+│
+└── mqserver2/
+    ├── queues.yml
+    ├── channels.yml
+    ├── listeners.yml
+    ├── topics.yml
+    ├── subscriptions.yml
+    ├── mq_auth_records.yml
+    └── mq_chlauth.yml
+
+The server directory is intentionally the top-level scope. This makes it easy to navigate the repository and see the MQ configuration belonging to a particular server.
+
+Multiple Queue Managers on one server
+
+A server can host multiple Queue Managers. The relationship between an MQ object and its Queue Manager is defined with the host_qmgr attribute.
+
+mq_queues:
+  - name: TESTQ1
+    type: local
+    host_qmgr: QM1
+
+  - name: TESTQ2
+    type: local
+    host_qmgr: QM2
+
+Both Queue Managers are therefore represented in the same server directory. There is no need to create a separate directory for every Queue Manager.
+
+# How it works
+
+                 Git Repository
+                       |
+                       v
+              objects/<server>/
+                       |
+                       v
+              Discover *.yml files
+                       |
+                       v
+             Validate configuration
+                       |
+                       v
+              Connect to MQ Server
+                       |
+                       v
+             Check MQ object exists
+                       |
+             +---------+---------+
+             |                   |
+          Exists              Missing
+             |                   |
+             v                   v
+           Skip                Create
+
+The playbook dynamically discovers the YAML files available for the target server. Each object type is included only when its configuration file exists.
+
+For example, if listeners.yml is not present, listener validation and configuration are skipped. A server therefore does not need empty files for object types it does not use.
 
 ![MQ Objects as Code Architecture](docs/images/mq-objects-as-code-architecture.png)
 
-The administrator describes **what the MQ environment should look like**.
+# Supported MQ Objects
 
-Ansible takes care of **how it gets created or updated**.
+The current implementation supports:
 
----
+Local queues
 
-# Example
+Transmission queues
 
-Instead of manually executing MQSC commands such as:
+Remote queues
 
-```text
-DEFINE QLOCAL(APP.REQUEST) MAXDEPTH(5000)
-```
+Alias queues
 
-the desired configuration can be represented as:
+Sender channels
 
-```yaml
-queues:
-  - name: APP.REQUEST
+Receiver channels
+
+Listeners
+
+Topics
+
+Subscriptions
+
+AUTHREC
+
+CHLAUTH
+
+Queues
+
+mq_queues:
+  - name: TESTQ1
     type: local
     host_qmgr: QM1
     max_depth: 5000
-```
 
-The configuration becomes:
+  - name: TESTQ4
+    type: xmitq
+    host_qmgr: QM1
 
-* Human readable
-* Version controlled
-* Reviewable
-* Repeatable
-* Reusable across environments
-
----
-
-# Key Design Principles
-
-### 1. Simple YAML
-
-MQ administrators should be able to understand the configuration without becoming Ansible experts.
-
-### 2. Object-driven configuration
-
-The configuration describes MQ objects rather than exposing unnecessary implementation details.
-
-### 3. Separation of configuration and automation
-
-Users define **what they want**.
-
-Ansible determines **how to implement it**.
-
-### 4. Validation before deployment
-
-Configuration should be validated before changes are made to an MQ environment.
-
-### 5. Idempotent automation
-
-Running the automation repeatedly should converge the MQ environment toward the desired state rather than blindly recreating objects.
-
-### 6. Git-based change management
-
-MQ configuration can be managed using the same principles used for modern Infrastructure as Code:
-
-```text
-Change
-  ↓
-Git
-  ↓
-Review
-  ↓
-Validation
-  ↓
-Ansible
-  ↓
-IBM MQ
-```
-
----
-
-# Supported MQ Configuration
-
-The project is being developed around common IBM MQ administration requirements, including:
-
-* Local queues
-* Remote queues
-* Sender channels
-* Receiver channels
-* Other MQ objects and configuration as the project evolves
-
-The configuration model is designed to accommodate relationships between MQ objects and queue managers.
-
-For example, channel definitions can identify the queue manager on which an object should be created.
-
----
-
-# Remote Queues
-
-Remote queue definitions can represent the relevant IBM MQ attributes without unnecessarily forcing values that IBM MQ itself considers optional.
-
-Example:
-
-```yaml
-queues:
-  - name: APP.REMOTE
+  - name: REMOTE.Q1
     type: remote
     host_qmgr: QM1
     remote_qmgr: QM2
-    xmit_queue: QM2
-```
+    rname: TESTQ1
+    xmit_queue: TESTQ4
 
-The model is designed to remain close to the actual IBM MQ object semantics rather than introducing artificial requirements.
+  - name: ALIAS.Q1
+    type: alias
+    host_qmgr: QM1
+    target: TESTQ1
 
----
+Channels
 
-# Channels
+mq_channel:
+  - name: QM1.TO.QM2
+    type: SDR
+    host_qmgr: QM1
+    target_host: <target host IP>
+    target_port: 1417
+    xmit_queue: TESTQ4
 
-Channels can similarly be represented as data rather than manually maintained MQSC commands.
-
-Example concept:
-
-```yaml
-channels:
-  - name: QM1.QM2
+  - name: QM1.TO.QM2
     type: RCVR
     host_qmgr: QM2
-```
 
-The `host_qmgr` attribute identifies the queue manager where the object should be created.
+The host_qmgr attribute identifies the Queue Manager on which the channel should be created. This is particularly useful for sender/receiver pairs where the same channel name is used on different Queue Managers. This server-scoped channel model was designed by Ankur Lodhi.
 
-This allows the same automation model to manage objects across multiple queue managers.
+Listeners
 
----
+mq_listeners:
+  - name: LISTENER1
+    port: 1417
+    control: QMGR
+    host_qmgr: QM2
+    host_address: <hostIP>
 
-# Why Ansible?
+Listener validation also considers the server-level address and port combination so conflicting listener definitions can be detected before configuration.
 
-Ansible provides several advantages for IBM MQ automation:
+Topics
 
-* Agentless automation
-* YAML-based configuration
-* Idempotent task execution
-* Inventory-based environment management
-* Easy integration with Git
-* CI/CD compatibility
-* Reusable roles and tasks
-* Easy integration with existing enterprise automation
+mq_topics:
+  - name: TOPIC_QM1
+    topic_str: /order/events
+    host_qmgr: QM1
 
-This makes Ansible a natural automation layer for IBM MQ environments.
+  - name: TOPIC_QM2
+    topic_str: /payments/events
+    host_qmgr: QM2
 
----
+Subscriptions
 
-# Typical Workflow
+mq_subscriptions:
+  - name: PAYMENT.SUB
+    topic_str: /payments/events
+    dest: PAYMENT_SUB_QUEUE
+    host_qmgr: QM2
 
-A typical workflow looks like:
+AUTHREC
 
-```text
-Developer / MQ Administrator
-            │
-            ▼
-      Edit YAML Model
-            │
-            ▼
-        Git Commit
-            │
-            ▼
-      Pull Request / Review
-            │
-            ▼
-        Validation
-            │
-            ▼
-       Ansible Playbook
-            │
-            ▼
-          IBM MQ
-            │
-            ▼
-    Desired MQ Configuration
-```
+Authorization records can be defined as configuration and applied to the appropriate MQ objects.
 
-This brings MQ configuration closer to modern DevOps and Infrastructure-as-Code practices.
+CHLAUTH
 
----
+Channel Authentication Records can be defined as configuration and applied to the target Queue Manager.
 
-# Benefits
+Safe Configuration Model
 
-## For MQ Administrators
+The project deliberately uses a create-if-missing approach.
 
-* Less repetitive MQSC work
-* Easier configuration management
-* Consistent object creation
-* Easier environment replication
-* Reduced manual errors
+If an MQ object already exists:
 
-## For DevOps Teams
+Object exists -> Skip
 
-* MQ configuration stored in Git
-* Automated deployments
-* CI/CD integration
-* Infrastructure-as-Code workflow
-* Configuration review through pull requests
+If it does not exist:
 
-## For Enterprises
+Object missing -> Create
 
-* Repeatable deployments
-* Better auditability
-* Easier disaster recovery
-* Consistent configuration across environments
-* Reduced operational dependency on manual procedures
+The current design does not compare every attribute of an existing object and automatically modify it to match YAML. Existing working MQ objects are not modified as part of normal execution.
 
----
+This is intentional. Introducing Infrastructure as Code into an existing MQ environment should not require automation to change working objects simply because the repository representation differs from the live configuration.
 
-# Project Philosophy
+Configuration Validation
 
-This project intentionally focuses on **simplicity**.
+Configuration is validated before MQ objects are created. Validation includes checks such as:
 
-The goal is not to create another complicated automation framework.
+Required attributes are present
 
-The goal is to make IBM MQ automation understandable to the people who actually manage MQ environments.
+Required values are not empty
 
-A good MQ administrator should be able to look at the YAML and immediately understand:
+MQ object names remain within expected lengths
 
-> **What MQ objects will exist, and where they will be created.**
+Numeric values are valid
 
----
+Ports are within the configured range
 
-# Project Status
+Duplicate definitions are detected
 
- **Active Development**
+Required object relationships are validated where applicable
 
-The project is mvoing toward broader IBM MQ object coverage, stronger validation, and production-oriented automation patterns.
+The validation model is intentionally simple and readable rather than introducing a large abstraction layer around IBM MQ.
 
-Feedback, testing, ideas, and contributions are welcome.
+Project Structure
 
----
+mq_objects_as_code/
+│
+├── inventory/
+│   └── hosts
+│
+├── objects/
+│   ├── mqserver1/
+│   │   ├── queues.yml
+│   │   ├── channels.yml
+│   │   ├── listeners.yml
+│   │   ├── topics.yml
+│   │   ├── subscriptions.yml
+│   │   ├── mq_auth_records.yml
+│   │   └── mq_chlauth.yml
+│   │
+│   └── mqserver2/
+│       ├── queues.yml
+│       ├── channels.yml
+│       ├── listeners.yml
+│       ├── topics.yml
+│       ├── subscriptions.yml
+│       ├── mq_auth_records.yml
+│       └── mq_chlauth.yml
+│
+├── playbooks/
+│   └── configure_mq.yml
+│
+├── tasks/
+│   ├── configure_queues.yml
+│   ├── configure_channels.yml
+│   ├── configure_listeners.yml
+│   ├── configure_topics.yml
+│   ├── configure_subscriptions.yml
+│   ├── configure_authrecords.yml
+│   └── configure_chlauth.yml
+│
+├── validation/
+│   ├── validate_queues.yml
+│   ├── validate_channels.yml
+│   ├── validate_listeners.yml
+│   ├── validate_topics.yml
+│   └── validate_subscriptions.yml
+│
+├── vars/
+│   └── Reference / backup MQ configuration
+│
+├── README.md
+└── .gitignore
 
-# Who Is This For?
+Inventory
 
-This project may be useful for:
+The Ansible inventory defines the MQ servers to which Ansible connects. The inventory hostname is intentionally the actual server name.
 
-* IBM MQ Administrators
-* Middleware Engineers
-* Messaging Engineers
-* Ansible Engineers
-* DevOps Engineers
-* Platform Engineers
-* Infrastructure Automation Teams
-* Enterprise Integration Teams
+[mqservers]
+mqserver1 ansible_host=192.168.29.209 ansible_user=alodhi1
 
-Especially teams managing **multiple IBM MQ queue managers and environments**.
+The relationship is therefore direct:
 
----
+Inventory hostname:  mqserver1
+Objects directory:   objects/mqserver1/
 
-# Getting Started
+Adding a new server should require an inventory entry and a corresponding objects/<server>/ directory, without changes to the automation code.
+
+Object File Discovery
+
+The playbook discovers the YAML files under the target server directory and builds a list of the object files that are actually present.
+
+For example:
+
+objects/mqserver1/
+├── queues.yml
+├── channels.yml
+└── listeners.yml
+
+Only those object types are processed. A missing topics.yml, for example, causes topic validation and configuration to be skipped.
+
+This keeps each server's configuration focused on the MQ objects it actually requires.
+
+Example: Multiple Queue Managers
+
+A server containing two Queue Managers can have one queues.yml containing objects for both:
+
+mq_queues:
+  - name: TESTQ1
+    type: local
+    host_qmgr: QM1
+    max_depth: 5000
+
+  - name: TESTQ2
+    type: local
+    host_qmgr: QM2
+    max_depth: 5000
+
+  - name: TESTQ4
+    type: xmitq
+    host_qmgr: QM1
+
+  - name: REMOTE.Q1
+    type: remote
+    host_qmgr: QM1
+    remote_qmgr: QM2
+    rname: TESTQ2
+    xmit_queue: TESTQ4
+
+host_qmgr tells the automation which Queue Manager owns each object.
+
+Adding a New Server
+
+Add the server to the inventory:
+
+[mqservers]
+mqserver1 ansible_host=192.168.29.209 ansible_user=alodhi1
+mqserver2 ansible_host=<server2 IP> ansible_user=<user>
+
+Then create the corresponding directory:
+
+objects/
+├── mqserver1/
+└── mqserver2/
+
+Add only the object files required by the new server. For example:
+
+objects/mqserver2/
+├── queues.yml
+├── channels.yml
+└── listeners.yml
+
+No changes to the main playbook are required simply because another server is added.
+
+Running the Automation
+
+Run the main playbook with:
+
+ansible-playbook -i inventory/hosts playbooks/configure_mq.yml
+
+If the environment requires SSH password authentication and privilege escalation prompts:
+
+ansible-playbook -i inventory/hosts playbooks/configure_mq.yml -k -K
+
+The exact authentication and privilege escalation method depends on the target environment.
+
+Example Execution Behaviour
+
+If a server contains:
+
+objects/mqserver1/
+├── queues.yml
+├── channels.yml
+└── listeners.yml
+
+the playbook will discover, validate, and configure those three object types while skipping object types whose configuration files are absent.
+
+If topics.yml is later added, topic validation and configuration are automatically included.
+
+Why YAML + MQSC?
+
+The project intentionally keeps the MQ configuration close to native IBM MQ administration.
+
+Instead of building a large custom abstraction around MQ, the configuration remains recognizable to an MQ administrator:
+
+name: TESTQ1
+type: local
+host_qmgr: QM1
+max_depth: 5000
+
+The Ansible layer handles discovery, validation, execution, and control flow, while MQSC remains the underlying MQ configuration mechanism.
+
+This means an MQ administrator can understand the configuration without first having to understand a completely different MQ configuration model.
+
+Design Principles
+
+1. Keep MQ administrators in mind
+
+The configuration should be understandable to someone who knows IBM MQ even if they are not an Ansible expert.
+
+2. Keep the automation simple
+
+Avoid unnecessary abstraction, complex templating, and premature optimization. Readable automation is easier to troubleshoot and maintain.
+
+3. Server is the execution scope
+
+The server directory represents the physical MQ server Ansible is working against.
+
+4. Queue Manager is an object attribute
+
+host_qmgr identifies the Queue Manager that owns an MQ object.
+
+5. Create missing objects only
+
+Existing MQ objects are left untouched by the current automation model.
+
+6. Validate before configuration
+
+Configuration errors should be caught before MQSC changes are attempted.
+
+7. Use native MQ concepts
+
+Where possible, the project keeps IBM MQ terminology and configuration concepts familiar to MQ administrators.
+
+Current Scope
+
+The current implementation focuses on practical MQ object automation:
+
+Queues
+ ├── Local
+ ├── Transmission
+ ├── Remote
+ └── Alias
+
+Channels
+ ├── Sender
+ └── Receiver
+
+Listeners
+
+Topics
+
+Subscriptions
+
+AUTHREC
+
+CHLAUTH
+
+The project is intentionally focused on useful MQ object configuration rather than automating every possible IBM MQ administrative function.
+
+What this project is not
+
+This project is not intended to replace an MQ administrator.
+
+It is an automation framework around MQ administration.
+
+It does not currently attempt to automatically reconcile every attribute of every existing MQ object.
+
+It does not automatically modify working objects simply because the YAML differs from the current MQ configuration.
+
+The emphasis is on controlled, understandable automation.
+
+Why Server → Object Type?
+
+An alternative structure would be to organize the repository around Queue Managers:
+
+objects/
+├── QM1/
+├── QM2/
+└── QM3/
+
+The project instead uses:
+
+objects/
+├── mqserver1/
+│   ├── queues.yml
+│   ├── channels.yml
+│   └── listeners.yml
+│
+└── mqserver2/
+    ├── queues.yml
+    ├── channels.yml
+    └── listeners.yml
+
+This provides a clear boundary around the physical server while still allowing multiple Queue Managers to be represented through host_qmgr.
+
+It also makes the repository easy to navigate as the number of MQ servers increases.
+
+Prerequisites
+
+The project requires:
+
+Ansible
+
+Network connectivity from the Ansible controller to the MQ servers
+
+SSH access to the MQ servers
+
+Appropriate privilege escalation permissions
+
+IBM MQ installed on the target servers
+
+Permission to execute the required MQ administration commands
+
+The exact Ansible and IBM MQ versions can depend on the target environment.
+
+Development Approach
+
+This project started as a practical exercise to improve Ansible skills and explore how IBM MQ administration could be represented as code.
+
+It evolved into a structured approach for managing MQ objects while keeping the implementation intentionally simple.
+
+The objective is not to build the most complicated automation framework possible. The objective is to build something an MQ administrator can understand, review, troubleshoot, and use.
+
+Future Direction
+
+Potential future enhancements may include:
+
+Additional MQ object types where there is a practical requirement
+
+Improved execution reporting
+
+Better execution summaries
+
+CI/CD integration
+
+Additional validation
+
+Larger-scale testing across multiple MQ servers
+
+Integration with enterprise automation pipelines
+
+Future functionality should be driven by real operational requirements rather than adding features simply for completeness.
+
+Contributing
+
+Suggestions, feedback, and improvements are welcome.
+
+If you work with IBM MQ, Ansible, or enterprise messaging environments, feedback on the configuration model, validation approach, and operational safety is especially useful.
+
+Repository
+
+GitHub repository:
+
+https://github.com/ankur-lodhi/mq_objects_as_code.git
 
 Clone the repository:
 
-```bash
-git clone <YOUR-GITHUB-REPOSITORY-URL>
+git clone https://github.com/ankur-lodhi/mq_objects_as_code.git
 cd mq_objects_as_code
-```
 
-Review the example configuration and inventory, then execute the appropriate Ansible playbook for your environment.
+Author
 
-Detailed setup and usage instructions will be maintained in the project documentation.
+Ankur Lodhi
 
----
+Middleware / IBM MQ / MFT / Automation
 
-# Contributing
+License
 
-Contributions are welcome.
-
-Ideas, improvements, bug reports, validation enhancements, additional MQ object support, and documentation improvements are all encouraged.
-
-If you have an IBM MQ automation use case that could benefit from this project, feel free to open an issue or submit a pull request.
-
----
-
-# Technology
-
-Built using:
-
-* **IBM MQ**
-* **Ansible**
-* **YAML**
-* **Git**
-* **Linux**
-
-Designed with Infrastructure-as-Code principles in mind.
-
----
-
-# Vision
-
-The long-term goal is simple:
-
-> **Make IBM MQ configuration as easy to manage as application code.**
-
-Define it.
-
-Validate it.
-
-Version it.
-
-Review it.
-
-Deploy it.
-
-Repeat.
-
----
-
-##  Support the Project
-
-If you find this project useful, please consider:
-
- **Starring the repository**
-
- **Forking the project**
-
- **Reporting issues**
-
- **Sharing ideas**
-
-**Contributing improvements**
-
-Every contribution helps make IBM MQ automation better for the community.
-
----
-
-## Author
-
-**Ankur Lodhi**
-
-IBM MQ | Middleware | Ansible | Automation | Infrastructure as Code
+This project is provided as an open-source project. See the repository for the applicable license and project terms.

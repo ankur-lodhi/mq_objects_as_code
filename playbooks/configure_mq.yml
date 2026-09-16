@@ -7,55 +7,81 @@
 
 
   tasks:
+    - name: Discover MQ object files. 
+      ansible.builtin.find:
+        path: "{{ playbook_dir }}/../objects/{{ inventory_hostname }}"
+        pattern: "*.yml"
+        file_type: file
+        recurse: false
+      delegate_to: localhost
+      become: false
+      register: mq_object_files
+
+    - name: Build list of MQ object files.
+      ansible.builtin.set_fact:
+        mq_object_file_names: "{{ mq_object_files.files | map (attribute ='path') | map ( 'basename' ) | list }}"
+    
 
     - name: Validate queue configuration
       ansible.builtin.include_tasks: 
         file: ../validation/queue_validation.yml
+      when: "'queues.yml' in mq_object_file_names"
 
 
     - name: configure queue
       ansible.builtin.include_tasks: 
         file: ../tasks/configure_queues.yml
+      when: "'queues.yml' in mq_object_file_names"
 
     - name: validate channel configuration
       ansible.builtin.include_tasks:
         file: ../validation/validate_channels.yml
+      when: "'channels.yml' in mq_object_file_names"
     
     - name: configure channel
       ansible.builtin.include_tasks: 
         file: ../tasks/configure_channels.yml
+      when: "'channels.yml' in mq_object_file_names"
 
     - name: validate listener configurations
       ansible.builtin.include_tasks:
         file: ../validation/validate_listeners.yml
+      when: "'listeners.yml' in mq_object_file_names"
 
     - name: configure listener
       ansible.builtin.include_tasks:
         file: ../tasks/configure_listeners.yml
+      when: "'listeners.yml' in mq_object_file_names"
 
     - name: Validate topic configurations
       ansible.builtin.include_tasks: 
         file: ../validation/validate_topics.yml
+      when: "'topics.yml' in mq_object_file_names"
 
     - name: configure topics 
       ansible.builtin.include_tasks:
         file: ../tasks/configure_topics.yml
+      when: "'topics.yml' in mq_object_file_names"
 
     - name: validate Subscription configurations
       ansible.builtin.include_tasks:
         file: ../validation/validate_subscriptions.yml
+      when: "'subscriptions.yml' in mq_object_file_names"
 
     - name: configure mq_subscriptions 
       ansible.builtin.include_tasks:
         file: ../tasks/configure_subscriptions.yml
+      when: "'subscriptions.yml' in mq_object_file_names"
 
     - name: configure auth records 
       ansible.builtin.include_tasks:
         file: ../tasks/configure_authrecords.yml
+      when: "'mq_auth_records.yml' in mq_object_file_names"
 
     - name: configure CHLAUTH records
       ansible.builtin.include_tasks:
         file: ../tasks/configure_chlauth.yml
+      when: "'mq_chlauth.yml' in mq_object_file_names"
     
 
 

@@ -1,47 +1,75 @@
 ---
-  - name: loading listener configuration
-    ansible.builtin.include_vars:
-      file: ../objects/{{ inventory_hostname }}/listeners.yml
+- name: Load listener configuration
+  ansible.builtin.include_vars:
+    file: ../objects/{{ inventory_hostname }}/listeners.yml
 
-  - name: Validate listener configuration
-    ansible.builtin.assert:
-      that:
-        - listener.name is defined
-        - listener.name | length >0
-        - listener.name | length <=48
-        - listener.port is defined
-        - listener.port is integer
-        - listener.port >=1024 
-        - listener.port <= 65535
-        - listener.port != 1414
-        - listener.control is defined
-        - listener.host_qmgr is defined
-        - listener.host_qmgr | length >0
-        - listener.host_qmgr | length <=20
-        - listener.host_address is defined
-        - listener.host_address | length >0
-      fail_msg: "Listener {{ listener.name }} is missing a required attribute or value length is not within the valid limit."
-    loop: "{{ mq_listeners }}"
-    loop_control:
-      loop_var: listener 
-      label: "{{ listener.name | default('unnamed') }}"
+- name: Validate listener list
+  ansible.builtin.assert:
+    that:
+      - >-
+        mq_listeners is defined and mq_listeners is sequence
+        and mq_listeners is not string and mq_listeners is not mapping
+    fail_msg: "mq_listeners must be a YAML list."
 
-  - name: Validate duplicate configuration
-    ansible.builtin.assert:
-      that: 
-        - >-
-          mq_listeners
-          | selectattr('port', 'equalto', listener.port)
-          | selectattr('host_address', 'equalto', listener.host_address)
-          | list
-          | length == 1
-      fail_msg: >-
-        Duplicate listener configuration found:
-        Name: {{ listener.name }}
-        port: {{ listener.port }}
-        host_address: {{ listener.host_address }}
-    loop: "{{ mq_listeners }}"
-    loop_control:
-      loop_var: listener
-      label: "{{ listener.name | default('unnamed') }}"
-      
+- name: Validate listener field types
+  ansible.builtin.assert:
+    that:
+      - >-
+        listener is mapping
+        and listener.name is defined and listener.name is string
+        and listener.port is defined and listener.port is integer
+        and listener.port is not boolean
+        and listener.control is defined and listener.control is string
+        and listener.host_qmgr is defined and listener.host_qmgr is string
+        and listener.host_address is defined and listener.host_address is string
+    fail_msg: "Listener fields have invalid types: {{ listener }}"
+  loop: "{{ mq_listeners }}"
+  loop_control:
+    loop_var: listener
+    label: "{{ listener.name | default('unnamed') }}"
+
+- name: Validate listener attributes
+  ansible.builtin.assert:
+    that:
+      - listener.name | length > 0 and listener.name | length <= 48
+      - listener.name is match('^[A-Za-z0-9._/%]+$')
+      - listener.port >= 1024 and listener.port <= 65535 and listener.port != 1414
+      - listener.control in ['QMGR', 'STARTONLY', 'MANUAL']
+      - listener.host_qmgr | length > 0 and listener.host_qmgr | length <= 48
+      - listener.host_qmgr is match('^[A-Za-z0-9._/%$#@]+$')
+      - listener.host_address | length > 0
+    fail_msg: "Listener {{ listener.name }} has a missing or invalid attribute."
+  loop: "{{ mq_listeners }}"
+  loop_control:
+    loop_var: listener
+    label: "{{ listener.name | default('unnamed') }}"
+
+- name: Reject control characters in listener fields
+  ansible.builtin.assert:
+    that:
+      - >-
+        listener.name is not search('[\x00-\x1f\x7f-\x9f]')
+        and listener.control is not search('[\x00-\x1f\x7f-\x9f]')
+        and listener.host_qmgr is not search('[\x00-\x1f\x7f-\x9f]')
+        and listener.host_address is not search('[\x00-\x1f\x7f-\x9f]')
+    fail_msg: "Listener fields cannot contain control characters."
+  loop: "{{ mq_listeners }}"
+  loop_control:
+    loop_var: listener
+    label: "{{ listener.name | default('unnamed') }}"
+
+- name: Validate duplicate listener identities
+  ansible.builtin.assert:
+    that:
+      - listener_identities | length == listener_identities | unique(case_sensitive=true) | length
+    fail_msg: "Duplicate listener name and queue manager identity found."
+  vars:
+    listener_identities: "{{ mq_listeners | map(attribute='name') | zip(mq_listeners | map(attribute='host_qmgr')) | map('to_json') | list }}"
+
+- name: Validate duplicate listener endpoints
+  ansible.builtin.assert:
+    that:
+      - listener_endpoints | length == listener_endpoints | unique(case_sensitive=true) | length
+    fail_msg: "Duplicate listener port and host address found."
+  vars:
+    listener_endpoints: "{{ mq_listeners | map(attribute='port') | zip(mq_listeners | map(attribute='host_address') | map('lower')) | map('to_json') | list }}"

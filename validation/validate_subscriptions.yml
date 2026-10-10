@@ -1,45 +1,65 @@
 ---
-  - name: loading Subscription configurations
-    ansible.builtin.include_vars:
-      file: ../objects/{{ inventory_hostname }}/subscriptions.yml
+- name: Load subscription configuration
+  ansible.builtin.include_vars:
+    file: ../objects/{{ inventory_hostname }}/subscriptions.yml
 
-  - name: validating Subscription configurations
-    ansible.builtin.assert:
-      that:
-        - sub.name is defined
-        - sub.name | length > 0
-        - sub.name | length <= 10240
-        - sub.dest is defined
-        - sub.dest | length > 0
-        - sub.dest | length <= 48
-        - sub.topic_str is defined
-        - sub.topic_str | length >0
-        - sub.topic_str | length <= 10240
-        - sub.host_qmgr is defined
-        - sub.host_qmgr | length > 0
-        - sub.host_qmgr | length <= 20
-      fail_msg: " Subscription {{ sub.name }} is missing a required attribute or provided attribute length doesn't meet the valid criteria"
-    loop: "{{ mq_subscriptions }}"
-    loop_control:
-      loop_var: sub
-      label: "{{ sub.name | default('unnamed') }}"
+- name: Validate subscription list
+  ansible.builtin.assert:
+    that:
+      - >-
+        mq_subscriptions is defined and mq_subscriptions is sequence
+        and mq_subscriptions is not string and mq_subscriptions is not mapping
+    fail_msg: "mq_subscriptions must be a YAML list."
 
-  - name: Validating Duplicate configurations
-    ansible.builtin.assert:
-      that: 
-        - >-
-          mq_subscriptions
-          | selectattr('name', 'equalto', sub.name )
-          | selectattr('topic_str', 'equalto', sub.topic_str)
-          | selectattr('host_qmgr', 'equalto', sub.host_qmgr)
-          | list
-          | length == 1
-      fail_msg: >-
-        Duplicate Subscription configuration found:
-        Subscription Name : {{ sub.name }}
-        Topic String : {{ sub.topic_str }}
-        Host Queue manager : {{ sub.host_qmgr }}
-    loop: "{{ mq_subscriptions }}"
-    loop_control:
-      loop_var: sub
-      label: "{{ sub.name | default('unnamed') }}"
+- name: Validate subscription field types
+  ansible.builtin.assert:
+    that:
+      - >-
+        sub is mapping
+        and sub.name is defined and sub.name is string
+        and sub.dest is defined and sub.dest is string
+        and sub.topic_str is defined and sub.topic_str is string
+        and sub.host_qmgr is defined and sub.host_qmgr is string
+    fail_msg: "Subscription fields have invalid types: {{ sub }}"
+  loop: "{{ mq_subscriptions }}"
+  loop_control:
+    loop_var: sub
+    label: "{{ sub.name | default('unnamed') }}"
+
+- name: Validate subscription attributes
+  ansible.builtin.assert:
+    that:
+      - sub.name | length > 0 and sub.name | length <= 10240
+      - sub.name is not search('[*]')
+      - sub.dest | length > 0 and sub.dest | length <= 48
+      - sub.dest is match('^[A-Za-z0-9._/%]+$')
+      - sub.topic_str | length > 0 and sub.topic_str | length <= 10240
+      - sub.host_qmgr | length > 0 and sub.host_qmgr | length <= 48
+      - sub.host_qmgr is match('^[A-Za-z0-9._/%$#@]+$')
+    fail_msg: "Subscription {{ sub.name }} has a missing or invalid attribute."
+  loop: "{{ mq_subscriptions }}"
+  loop_control:
+    loop_var: sub
+    label: "{{ sub.name | default('unnamed') }}"
+
+- name: Reject control characters in subscription fields
+  ansible.builtin.assert:
+    that:
+      - >-
+        sub.name is not search('[\x00-\x1f\x7f-\x9f]')
+        and sub.dest is not search('[\x00-\x1f\x7f-\x9f]')
+        and sub.topic_str is not search('[\x00-\x1f\x7f-\x9f]')
+        and sub.host_qmgr is not search('[\x00-\x1f\x7f-\x9f]')
+    fail_msg: "Subscription fields cannot contain control characters."
+  loop: "{{ mq_subscriptions }}"
+  loop_control:
+    loop_var: sub
+    label: "{{ sub.name | default('unnamed') }}"
+
+- name: Validate duplicate subscription identities
+  ansible.builtin.assert:
+    that:
+      - subscription_identities | length == subscription_identities | unique(case_sensitive=true) | length
+    fail_msg: "Duplicate subscription name and queue manager identity found."
+  vars:
+    subscription_identities: "{{ mq_subscriptions | map(attribute='name') | zip(mq_subscriptions | map(attribute='host_qmgr')) | map('to_json') | list }}"

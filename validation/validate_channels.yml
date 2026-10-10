@@ -1,71 +1,95 @@
 ---
-  - name: Load channel configuration. 
-    ansible.builtin.include_vars:
-      file: ../objects/{{ inventory_hostname }}/channels.yml
+- name: Load channel configuration
+  ansible.builtin.include_vars:
+    file: ../objects/{{ inventory_hostname }}/channels.yml
 
-  - name: Validate required channel attribute
-    ansible.builtin.assert:
-      that:
-        - channel.name is defined
-        - channel.name | length >0
-        - channel.name | length <= 20
-        - channel.type is defined
-        - channel.host_qmgr is defined
-        - channel.host_qmgr | length >0
-        - channel.host_qmgr | length <= 20
-      fail_msg: "Channel is missing a required attribute or channel name is longer then 20 characters: {{ channel }}"
-    loop: "{{ mq_channel }}"
-    loop_control:
-      loop_var: channel
-      label: "{{ channel.name | default('unnamed') }}"
+- name: Validate channel list
+  ansible.builtin.assert:
+    that:
+      - >-
+        mq_channel is defined and mq_channel is sequence
+        and mq_channel is not string and mq_channel is not mapping
+    fail_msg: "mq_channel must be a YAML list."
 
-  - name: Validate channel types
-    ansible.builtin.assert:
-      that:
-        - channel.type in ['SDR', 'RCVR']
-      fail_msg: "Unsupported channel type for channel: {{ channel.name }} {{ channel.type }}"
-    loop: "{{ mq_channel }}"
-    loop_control:
-      loop_var: channel
-      label: "{{ channel.name | default('unnamed') }}"
-  
-  - name: Validate Sender channel
-    ansible.builtin.assert:
-      that:
-        - channel.target_host is defined
-        - channel.target_host | length > 0
-        - channel.target_port is defined
-        - channel.target_port is integer
-        - channel.target_port >=1024 
-        - channel.target_port <= 65535
-        - channel.target_port != 1414
-        - channel.xmit_queue is defined
-        - channel.xmit_queue | length > 0
-        - channel.xmit_queue | length <= 48
-      fail_msg: "Channel {{ channel.name }} is missing a required attirbute or channel name is longer then 20 characters"
-    loop: "{{ mq_channel }}"
-    loop_control:
-      loop_var: channel
-      label: "{{ channel.name | default('unnamed') }}"
-    when: channel.type == 'SDR'
+- name: Validate channel field types
+  ansible.builtin.assert:
+    that:
+      - >-
+        channel is mapping
+        and channel.name is defined and channel.name is string
+        and channel.type is defined and channel.type is string
+        and channel.host_qmgr is defined and channel.host_qmgr is string
+        and ((channel.target_host is not defined) or (channel.target_host is string))
+        and ((channel.target_port is not defined) or
+        (channel.target_port is integer and channel.target_port is not boolean))
+        and ((channel.xmit_queue is not defined) or (channel.xmit_queue is string))
+    fail_msg: "Channel fields have invalid types: {{ channel }}"
+  loop: "{{ mq_channel }}"
+  loop_control:
+    loop_var: channel
+    label: "{{ channel.name | default('unnamed') }}"
 
-  - name: Validate duplicate channel configurations
-    ansible.builtin.assert:
-      that:
-        - >-
-          mq_channel
-          | selectattr('name', 'equalto', channel.name)
-          | selectattr('type', 'equalto', channel.type)
-          | selectattr('host_qmgr', 'equalto', channel.host_qmgr)
-          | list
-          | length == 1
-      fail_msg: >-
-        Duplicate channel configuration found:
-        channel: {{ channel.name }}
-        type: {{ channel.type }}
-        Queue Manager: {{ channel.host_qmgr }}
-    loop: "{{ mq_channel }}"
-    loop_control:
-      loop_var: channel
-      label: "{{ channel.name | default('unnamed') }}"  
+- name: Validate required channel attributes and name limits
+  ansible.builtin.assert:
+    that:
+      - channel.name | length > 0
+      - channel.name | length <= 20
+      - channel.name is not search('[*?]')
+      - channel.name is not search('[*?]')
+      - channel.type in ['SDR', 'RCVR']
+      - channel.host_qmgr | length > 0
+      - channel.host_qmgr | length <= 48
+      - channel.host_qmgr is match('^[A-Za-z0-9._/%$#@]+$')
+    fail_msg: "Channel is missing a required attribute, has an unsupported type, or exceeds an MQ name limit: {{ channel }}"
+  loop: "{{ mq_channel }}"
+  loop_control:
+    loop_var: channel
+    label: "{{ channel.name | default('unnamed') }}"
 
+- name: Validate sender channel attributes
+  ansible.builtin.assert:
+    that:
+      - channel.target_host is defined and channel.target_host | length > 0
+      - channel.target_port is defined
+      - channel.target_port >= 1024 and channel.target_port <= 65535 and channel.target_port != 1414
+      - channel.xmit_queue is defined and channel.xmit_queue | length > 0 and channel.xmit_queue | length <= 48
+    fail_msg: "Sender channel {{ channel.name }} has invalid connection or transmission queue attributes."
+  loop: "{{ mq_channel }}"
+  loop_control:
+    loop_var: channel
+    label: "{{ channel.name | default('unnamed') }}"
+  when: channel.type == 'SDR'
+
+- name: Reject control characters in channel fields
+  ansible.builtin.assert:
+    that:
+      - >-
+        channel.name is not search('[\x00-\x1f\x7f-\x9f]')
+        and channel.type is not search('[\x00-\x1f\x7f-\x9f]')
+        and channel.host_qmgr is not search('[\x00-\x1f\x7f-\x9f]')
+        and ((channel.target_host is not defined) or channel.target_host is not search('[\x00-\x1f\x7f-\x9f]'))
+        and ((channel.xmit_queue is not defined) or channel.xmit_queue is not search('[\x00-\x1f\x7f-\x9f]'))
+    fail_msg: "Channel fields cannot contain control characters."
+  loop: "{{ mq_channel }}"
+  loop_control:
+    loop_var: channel
+    label: "{{ channel.name | default('unnamed') }}"
+
+- name: Validate channel queue name syntax
+  ansible.builtin.assert:
+    that:
+      - channel.xmit_queue is match('^[A-Za-z0-9._/%]+$')
+    fail_msg: "Sender channel transmission queue must use valid IBM MQ queue-name characters."
+  loop: "{{ mq_channel }}"
+  loop_control:
+    loop_var: channel
+    label: "{{ channel.name | default('unnamed') }}"
+  when: channel.type == 'SDR'
+
+- name: Validate duplicate channel identities
+  ansible.builtin.assert:
+    that:
+      - channel_identities | length == channel_identities | unique(case_sensitive=true) | length
+    fail_msg: "Duplicate channel name and queue manager identity found."
+  vars:
+    channel_identities: "{{ mq_channel | map(attribute='name') | zip(mq_channel | map(attribute='host_qmgr')) | map('to_json') | list }}"

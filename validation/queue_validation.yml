@@ -1,87 +1,95 @@
 ---
-  - name: loading MQ queue configuration. 
-    ansible.builtin.include_vars:
-      file: ../objects/{{ inventory_hostname }}/queues.yml
-  
-  - name: validate required queue attributes
-    ansible.builtin.assert:
-      that: 
-        - queue.name is defined
-        - queue.name | length > 0
-        - queue.name | length <= 48
-        - queue.type is defined
-        - queue.host_qmgr is defined
-        - queue.host_qmgr | length > 0 
-        - queue.host_qmgr | length <= 48
-      fail_msg: "Queue is missing a required attribute or queue name is longer then 48 characters: {{ queue }}"
-    loop: "{{ mq_queues }}"
-    loop_control:
-      loop_var: queue
-      label: "{{ queue.name | default ('unnamed') }}"
+- name: Load MQ queue configuration
+  ansible.builtin.include_vars:
+    file: ../objects/{{ inventory_hostname }}/queues.yml
 
+- name: Validate queue list
+  ansible.builtin.assert:
+    that:
+      - >-
+        mq_queues is defined and mq_queues is sequence
+        and mq_queues is not string and mq_queues is not mapping
+    fail_msg: "mq_queues must be a YAML list."
 
-  - name: validate Queue type
-    ansible.builtin.assert: 
-      that: 
-        - queue.type in ['local', 'xmitq', 'remote', 'alias']
-      fail_msg: "Unsupported queue type for {{ queue.name }}: {{ queue.type }}"
-    loop: "{{ mq_queues }}"
-    loop_control:
-      loop_var: queue
-      label: "{{ queue.name | default('unnamed') }}"
+- name: Validate queue field types
+  ansible.builtin.assert:
+    that:
+      - >-
+        queue is mapping
+        and queue.name is defined and queue.name is string
+        and queue.type is defined and queue.type is string
+        and queue.host_qmgr is defined and queue.host_qmgr is string
+        and ((queue.max_depth is not defined) or
+        (queue.max_depth is integer and queue.max_depth is not boolean))
+        and ((queue.target is not defined) or (queue.target is string))
+        and ((queue.target_type is not defined) or (queue.target_type is string))
+        and ((queue.remote_qmgr is not defined) or (queue.remote_qmgr is string))
+        and ((queue.xmit_queue is not defined) or (queue.xmit_queue is string))
+        and ((queue.rname is not defined) or (queue.rname is string))
+    fail_msg: "Queue fields have invalid types: {{ queue }}"
+  loop: "{{ mq_queues }}"
+  loop_control:
+    loop_var: queue
+    label: "{{ queue.name | default('unnamed') }}"
 
-# Remote queues can technically be defined without RNAME, RQMNAME or XMITQ.
-# These attributes are validated by automation to standardize regular BAU requests.
-# Any special remote queue requirements should be handled by the MQ administrator.
-# RNAME may also be explicitly defined with an empty value.
+- name: Validate required queue attributes and name limits
+  ansible.builtin.assert:
+    that:
+      - queue.name | length > 0
+      - queue.name | length <= 48
+      - queue.name is match('^[A-Za-z0-9._/%]+$')
+      - queue.type in ['local', 'xmitq', 'remote', 'alias']
+      - queue.host_qmgr | length > 0
+      - queue.host_qmgr | length <= 48
+      - queue.host_qmgr is match('^[A-Za-z0-9._/%$#@]+$')
+    fail_msg: "Queue is missing a required attribute, has an unsupported type, or exceeds an MQ name limit: {{ queue }}"
+  loop: "{{ mq_queues }}"
+  loop_control:
+    loop_var: queue
+    label: "{{ queue.name | default('unnamed') }}"
 
-  - name: validate Remote queues
-    ansible.builtin.assert:
-      that: 
-        - queue.remote_qmgr is defined
-        - queue.xmit_queue is defined
-        - queue.rname is defined
-        - queue.xmit_queue | length > 0
-        - queue.xmit_queue | length <= 48
-        - queue.remote_qmgr | length > 0 
-        - queue.remote_qmgr | length <= 48
-      fail_msg: "Remote Queue {{ queue.name }} requires a remote_qmgr and xmit_queue"
-    loop: "{{ mq_queues }}"
-    loop_control:
-      loop_var: queue
-      label: "{{ queue.name | default('unnamed') }}"
-    when: queue.type == 'remote'
+- name: Validate optional queue attributes
+  ansible.builtin.assert:
+    that:
+      - (queue.max_depth is not defined) or (queue.max_depth >= 0 and queue.max_depth <= 999999999)
+      - (queue.type != 'alias') or (queue.target is defined and queue.target | length > 0 and queue.target | length <= 48)
+      - (queue.type != 'alias') or (queue.target_type | default('QUEUE') in ['QUEUE', 'TOPIC'])
+      - (queue.type != 'remote') or (queue.remote_qmgr is defined and queue.remote_qmgr | length > 0 and queue.remote_qmgr | length <= 48)
+      - (queue.type != 'remote') or (queue.remote_qmgr is match('^[A-Za-z0-9._/%$#@]+$'))
+      - (queue.type != 'remote') or (queue.xmit_queue is defined and queue.xmit_queue | length > 0 and queue.xmit_queue | length <= 48)
+      - (queue.type != 'remote') or (queue.rname is defined and queue.rname | length <= 48 and (queue.rname | length == 0 or queue.rname is match('^[A-Za-z0-9._/%]+$')))
+      - (queue.rname is not defined) or queue.rname | length <= 48
+      - (queue.type != 'alias') or (queue.target is match('^[A-Za-z0-9._/%]+$'))
+      - (queue.type != 'remote') or (queue.xmit_queue is match('^[A-Za-z0-9._/%]+$'))
+    fail_msg: "Queue has an invalid optional or type-specific attribute: {{ queue }}"
+  loop: "{{ mq_queues }}"
+  loop_control:
+    loop_var: queue
+    label: "{{ queue.name | default('unnamed') }}"
 
-  - name: validate Alias queues
-    ansible.builtin.assert:
-      that: 
-        - queue.target is defined
-        - queue.target | length > 0
-        - queue.target | length <= 48
-      fail_msg: " Alias queue {{ queue.name }} requires target"
-    loop: "{{ mq_queues }}"
-    loop_control:
-      loop_var: queue
-      label: "{{ queue.name | default('unnamed') }}"
-    when: queue.type == 'alias'
+- name: Reject control characters in queue fields
+  ansible.builtin.assert:
+    that:
+      - >-
+        queue.name is not search('[\x00-\x1f\x7f-\x9f]')
+        and queue.type is not search('[\x00-\x1f\x7f-\x9f]')
+        and queue.host_qmgr is not search('[\x00-\x1f\x7f-\x9f]')
+        and ((queue.target is not defined) or queue.target is not search('[\x00-\x1f\x7f-\x9f]'))
+        and ((queue.target_type is not defined) or queue.target_type is not search('[\x00-\x1f\x7f-\x9f]'))
+        and ((queue.remote_qmgr is not defined) or queue.remote_qmgr is not search('[\x00-\x1f\x7f-\x9f]'))
+        and ((queue.xmit_queue is not defined) or queue.xmit_queue is not search('[\x00-\x1f\x7f-\x9f]'))
+        and ((queue.rname is not defined) or queue.rname is not search('[\x00-\x1f\x7f-\x9f]'))
+    fail_msg: "Queue fields cannot contain control characters."
+  loop: "{{ mq_queues }}"
+  loop_control:
+    loop_var: queue
+    label: "{{ queue.name | default('unnamed') }}"
 
+- name: Validate duplicate queue identities
+  ansible.builtin.assert:
+    that:
+      - queue_identities | length == queue_identities | unique(case_sensitive=true) | length
+    fail_msg: "Duplicate queue name and queue manager identity found."
+  vars:
+    queue_identities: "{{ mq_queues | map(attribute='name') | zip(mq_queues | map(attribute='host_qmgr')) | map('to_json') | list }}"
 
-  - name: check for duplicat queue configuations
-    ansible.builtin.assert:
-      that:
-        - queue_keys | length == queue_keys | unique | length
-      fail_msg: "Duplicate Queue defination found. Duplicate key {{ item }}"
-    vars: 
-      queue_keys: >-
-        {{
-          mq_queues
-          |map(attribute='type')
-          |zip(mq_queues | map(attribute='name'))
-          |zip(mq_queues | map(attribute='host_qmgr'))
-          |map('flatten')
-          |map('join','|')
-          |list
-        }}
-    loop: "{{ queue_keys }}"
-    loop_control:
-      loop_var: item

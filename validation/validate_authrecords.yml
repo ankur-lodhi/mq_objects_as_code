@@ -1,0 +1,61 @@
+---
+- name: Load MQ authority records for validation
+  ansible.builtin.include_vars:
+    file: "../objects/{{ inventory_hostname }}/mq_auth_records.yml"
+
+- name: Validate authority record collection
+  ansible.builtin.assert:
+    that:
+      - mq_auth_records is defined
+      - mq_auth_records is sequence
+      - mq_auth_records is not string
+      - mq_auth_records is not mapping
+
+- name: Validate authority record fields
+  ansible.builtin.assert:
+    that:
+      - auth is mapping
+      - auth.keys() | difference(['profile', 'objtype', 'principal', 'authadd', 'host_qmgr']) | length == 0
+      - auth.profile is defined
+      - auth.profile is string
+      - auth.profile | length > 0
+      - auth.profile | length <= 48
+      - (auth.profile | mqsc_quote) is string
+      - auth.objtype | mqsc_enum(['AUTHINFO', 'CHANNEL', 'CLNTCONN', 'COMMINFO', 'LISTENER', 'NAMELIST', 'PROCESS', 'QUEUE', 'QMGR', 'RQMNAME', 'SERVICE', 'TOPIC']) is string
+      - auth.principal is defined
+      - auth.principal is string
+      - auth.principal | length > 0
+      - (auth.principal | mqsc_quote) is string
+      - auth.authadd is sequence
+      - auth.authadd is not string
+      - auth.authadd is not mapping
+      - auth.authadd | length > 0
+      - auth.authadd | difference(['NONE', 'ALTUSR', 'BROWSE', 'CHG', 'CLR', 'CONNECT', 'CRT', 'DLT', 'DSP', 'GET', 'INQ', 'PASSALL', 'PASSID', 'SET', 'SETALL', 'SETID', 'PUT', 'RESUME', 'SUB', 'PUB', 'SYSTEM', 'CTRL', 'CTRLX', 'ALL', 'ALLADM', 'ALLMQI']) | length == 0
+      - auth.host_qmgr is defined
+      - auth.host_qmgr is string
+      - auth.host_qmgr | length > 0
+      - auth.host_qmgr | length <= 48
+      - auth.host_qmgr is match('^[A-Za-z0-9._/%$#@]+$')
+      - (auth.host_qmgr | mqsc_quote) is string
+    fail_msg: "Invalid MQ authority record; check profile, principal, object type, AUTHADD values, and queue-manager name."
+  loop: "{{ mq_auth_records }}"
+  loop_control:
+    loop_var: auth
+    label: "{{ auth.principal | default('unnamed') }} {{ auth.objtype | default('unknown') }}"
+
+- name: Reject duplicate authority record declarations
+  ansible.builtin.assert:
+    that:
+      - >-
+        mq_auth_records
+        | selectattr('profile', 'equalto', auth.profile)
+        | selectattr('objtype', 'equalto', auth.objtype)
+        | selectattr('principal', 'equalto', auth.principal)
+        | selectattr('host_qmgr', 'equalto', auth.host_qmgr)
+        | list
+        | length == 1
+    fail_msg: "Duplicate authority record declaration: {{ auth.objtype }} {{ auth.profile }} for {{ auth.principal }} on {{ auth.host_qmgr }}"
+  loop: "{{ mq_auth_records }}"
+  loop_control:
+    loop_var: auth
+    label: "{{ auth.profile }} {{ auth.principal }}"

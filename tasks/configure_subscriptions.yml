@@ -1,25 +1,62 @@
 ---
-  - name: Load MQ mq_subscriptions
-    ansible.builtin.include_vars:
-      file: ../objects/{{ inventory_hostname }}/subscriptions.yml 
-  
-  - name: check Subscriptions on QMGR 
-    ansible.builtin.shell: | 
-      echo "DIS SUB('{{ sub.name }}')" | sudo -u mqm {{ mq_dir }}/runmqsc {{ sub.host_qmgr }}
-    loop: "{{ mq_subscriptions }}"
-    loop_control:
-      loop_var: sub
-    register: sub_check
-    failed_when: false
-    changed_when: false
+- name: Load subscription configuration
+  ansible.builtin.include_vars:
+    file: ../objects/{{ inventory_hostname }}/subscriptions.yml
 
-  - name: Define Subscriptions on QMGR 
-    ansible.builtin.shell: |
-      echo " DEFINE SUB('{{ sub.name }}') TOPICSTR('{{ sub.topic_str}}') DEST('{{ sub.dest }}')" | 
-      sudo -u mqm {{ mq_dir }}/runmqsc {{sub.host_qmgr}}
-    loop: "{{ mq_subscriptions }}"
-    loop_control:
-      loop_var: sub
-      index_var: sub_index
-      label: "{{ sub.name }} on {{ sub.host_qmgr }}"
-    when: sub_check.results[sub_index].rc != 0
+- name: Check subscription existence
+  ansible.builtin.command:
+    argv:
+      - "{{ mq_dir }}/runmqsc"
+      - "-e"
+      - "{{ sub.host_qmgr }}"
+    stdin: "DIS SUB({{ sub.name | mqsc_quote }})"
+    expand_argument_vars: false
+  loop: "{{ mq_subscriptions }}"
+  loop_control:
+    loop_var: sub
+    label: "{{ sub.name }} on {{ sub.host_qmgr }}"
+  become_user: "{{ mq_user }}"
+  environment:
+    LANG: C
+    LC_ALL: C
+  check_mode: false
+  register: sub_check
+  changed_when: false
+  failed_when: >-
+    sub_check.rc not in [0, 10] or
+    (sub_check.rc == 10 and
+    ((sub_check.stdout ~ sub_check.stderr) | regex_search('(?m)^\\s*AMQ8147E?:')) is none)
+
+- name: Create missing subscriptions
+  ansible.builtin.command:
+    argv:
+      - "{{ mq_dir }}/runmqsc"
+      - "-e"
+      - "{{ sub.host_qmgr }}"
+    stdin: "DEFINE SUB({{ sub.name | mqsc_quote }}) TOPICSTR({{ sub.topic_str | mqsc_quote }}) DEST({{ sub.dest | mqsc_quote }})"
+    expand_argument_vars: false
+  loop: "{{ mq_subscriptions }}"
+  loop_control:
+    loop_var: sub
+    index_var: sub_index
+    label: "{{ sub.name }} on {{ sub.host_qmgr }}"
+  become_user: "{{ mq_user }}"
+  environment:
+    LANG: C
+    LC_ALL: C
+  when:
+    - not ansible_check_mode
+    - sub_check.results[sub_index].rc == 10
+
+- name: Report subscriptions that would be created in check mode
+  ansible.builtin.debug:
+    msg: "Would create subscription {{ sub.name }} on {{ sub.host_qmgr }}"
+  loop: "{{ mq_subscriptions }}"
+  loop_control:
+    loop_var: sub
+    index_var: sub_index
+    label: "{{ sub.name }} on {{ sub.host_qmgr }}"
+  when:
+    - ansible_check_mode
+    - sub_check.results[sub_index].rc == 10
+  changed_when: true

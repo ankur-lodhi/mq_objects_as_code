@@ -1,41 +1,71 @@
----    
-    - name: load queue configuration
-      ansible.builtin.include_vars:
-        file: ../objects/{{ inventory_hostname }}/queues.yml
-    
-    - name: check queue status
-      ansible.builtin.shell: |
-        echo "DIS QUEUE('{{ queue.name }}') MAXDEPTH" |
-        sudo -u mqm {{ mq_dir }}/runmqsc {{ queue.host_qmgr }}
-      loop: "{{ mq_queues }}"
-      loop_control:
-        loop_var: queue
-      register: queue_check
-      changed_when: false
-      failed_when: false
+---
+- name: Load queue configuration
+  ansible.builtin.include_vars:
+    file: ../objects/{{ inventory_hostname }}/queues.yml
 
+- name: Check queue existence
+  ansible.builtin.command:
+    argv:
+      - "{{ mq_dir }}/runmqsc"
+      - "-e"
+      - "{{ queue.host_qmgr }}"
+    stdin: "DIS QUEUE({{ queue.name | mqsc_quote }})"
+    expand_argument_vars: false
+  loop: "{{ mq_queues }}"
+  loop_control:
+    loop_var: queue
+    label: "{{ queue.name }} on {{ queue.host_qmgr }}"
+  become_user: "{{ mq_user }}"
+  environment:
+    LANG: C
+    LC_ALL: C
+  check_mode: false
+  register: queue_check
+  changed_when: false
+  failed_when: >-
+    queue_check.rc not in [0, 10] or
+    (queue_check.rc == 10 and
+    ((queue_check.stdout ~ queue_check.stderr) | regex_search('(?m)^\\s*AMQ8147E?:')) is none)
 
-    - name: Create Queues
-      ansible.builtin.shell: |
-        {% if queue.type == 'xmitq' %}
-        echo "DEFINE QL('{{ queue.name }}') MAXDEPTH({{ queue.max_depth }}) USAGE(XMITQ)"|
-        sudo -u mqm {{ mq_dir }}/runmqsc {{ queue.host_qmgr }}
+- name: Create missing queues
+  ansible.builtin.command:
+    argv:
+      - "{{ mq_dir }}/runmqsc"
+      - "-e"
+      - "{{ queue.host_qmgr }}"
+    stdin: >-
+      {% if queue.type == 'xmitq' %}
+      DEFINE QLOCAL({{ queue.name | mqsc_quote }}) MAXDEPTH({{ queue.max_depth | default(5000) | mqsc_integer(0, 999999999) }}) USAGE(XMITQ)
+      {% elif queue.type == 'remote' %}
+      DEFINE QREMOTE({{ queue.name | mqsc_quote }}) RNAME({{ queue.rname | mqsc_quote }}) RQMNAME({{ queue.remote_qmgr | mqsc_quote }}) XMITQ({{ queue.xmit_queue | mqsc_quote }})
+      {% elif queue.type == 'alias' %}
+      DEFINE QALIAS({{ queue.name | mqsc_quote }}) TARGET({{ queue.target | mqsc_quote }}) TARGETTYPE({{ queue.target_type | default("QUEUE") | mqsc_enum(["QUEUE", "TOPIC"]) }})
+      {% else %}
+      DEFINE QLOCAL({{ queue.name | mqsc_quote }}) MAXDEPTH({{ queue.max_depth | default(5000) | mqsc_integer(0, 999999999) }})
+      {% endif %}
+    expand_argument_vars: false
+  loop: "{{ mq_queues }}"
+  loop_control:
+    loop_var: queue
+    index_var: queue_index
+    label: "{{ queue.name }} on {{ queue.host_qmgr }}"
+  become_user: "{{ mq_user }}"
+  environment:
+    LANG: C
+    LC_ALL: C
+  when:
+    - not ansible_check_mode
+    - queue_check.results[queue_index].rc == 10
 
-        {% elif queue.type == 'remote' %}
-        echo "DEFINE QREMOTE('{{ queue.name }}') RNAME('{{ queue.rname }}') RQMNAME('{{ queue.remote_qmgr }}') XMITQ('{{ queue.xmit_queue }}')" |
-        sudo -u mqm {{ mq_dir }}/runmqsc {{ queue.host_qmgr }}
-
-        {% elif queue.type == 'alias' %}
-        echo "DEFINE QALIAS('{{ queue.name }}') TARGET('{{ queue.target }}') TARGETTYPE({{ queue.target_type }})" |
-        sudo -u mqm {{ mq_dir }}/runmqsc {{ queue.host_qmgr}}
-
-        {% else %}
-        echo "DEFINE QL('{{ queue.name }}') MAXDEPTH({{ queue.max_depth }})" |
-        sudo -u mqm {{ mq_dir }}/runmqsc {{ queue.host_qmgr }}
-        {% endif %}
-      loop: "{{ mq_queues }}"
-      loop_control:
-        loop_var: queue
-        index_var: queue_index
-        label: "{{ queue.name }} on {{ queue.host_qmgr }}"
-      when: queue_check.results[queue_index].rc != 0
+- name: Report queues that would be created in check mode
+  ansible.builtin.debug:
+    msg: "Would create queue {{ queue.name }} on {{ queue.host_qmgr }}"
+  loop: "{{ mq_queues }}"
+  loop_control:
+    loop_var: queue
+    index_var: queue_index
+    label: "{{ queue.name }} on {{ queue.host_qmgr }}"
+  when:
+    - ansible_check_mode
+    - queue_check.results[queue_index].rc == 10
+  changed_when: true

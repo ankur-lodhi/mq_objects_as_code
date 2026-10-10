@@ -1,31 +1,67 @@
-    - name: load queue defination
-      ansible.builtin.include_vars:
-        file: ../objects/{{ inventory_hostname }}/channels.yml
-    
-    
-    - name: Check channel status
-      ansible.builtin.shell: |
-        echo "DIS CHANNEL('{{ channel.name }}')" |
-        sudo -u mqm {{ mq_dir }}/runmqsc {{ channel.host_qmgr }}
-      loop: "{{ mq_channel }}"
-      loop_control:
-        loop_var: channel
-      register: channel_check
-      failed_when: false
-      changed_when: false
+---
+- name: Load channel configuration
+  ansible.builtin.include_vars:
+    file: ../objects/{{ inventory_hostname }}/channels.yml
 
-    - name: Create MQ Channel
-      ansible.builtin.shell: |
-        {%if channel.type == 'SDR' %}
-        echo "DEFINE CHANNEL('{{ channel.name }}') CHLTYPE({{ channel.type }}) CONNAME('{{ channel.target_host }}({{ channel.target_port }})') XMITQ('{{ channel.xmit_queue }}')" |
-        sudo -u mqm {{ mq_dir }}/runmqsc {{ channel.host_qmgr }}
-        {% else %}
-        echo "DEFINE CHANNEL('{{ channel.name }}') CHLTYPE({{ channel.type }})" |
-        sudo -u mqm {{ mq_dir }}/runmqsc {{ channel.host_qmgr }}
-        {% endif %}
-      loop: "{{ mq_channel }}"
-      loop_control:
-        loop_var: channel
-        index_var: channel_index
-        label: "{{ channel.name }} on {{ channel.host_qmgr }}"
-      when: channel_check.results[channel_index].rc !=0
+- name: Check channel existence
+  ansible.builtin.command:
+    argv:
+      - "{{ mq_dir }}/runmqsc"
+      - "-e"
+      - "{{ channel.host_qmgr }}"
+    stdin: "DIS CHANNEL({{ channel.name | mqsc_quote }})"
+    expand_argument_vars: false
+  loop: "{{ mq_channel }}"
+  loop_control:
+    loop_var: channel
+    label: "{{ channel.name }} on {{ channel.host_qmgr }}"
+  become_user: "{{ mq_user }}"
+  environment:
+    LANG: C
+    LC_ALL: C
+  check_mode: false
+  register: channel_check
+  changed_when: false
+  failed_when: >-
+    channel_check.rc not in [0, 10] or
+    (channel_check.rc == 10 and
+    ((channel_check.stdout ~ channel_check.stderr) | regex_search('(?m)^\\s*AMQ8147E?:')) is none)
+
+- name: Create missing channels
+  ansible.builtin.command:
+    argv:
+      - "{{ mq_dir }}/runmqsc"
+      - "-e"
+      - "{{ channel.host_qmgr }}"
+    stdin: >-
+      {% if channel.type == 'SDR' %}
+      DEFINE CHANNEL({{ channel.name | mqsc_quote }}) CHLTYPE({{ channel.type | mqsc_enum(["SDR", "RCVR"]) }}) CONNAME({{ (channel.target_host ~ '(' ~ (channel.target_port | mqsc_integer(1024, 65535) | string) ~ ')') | mqsc_quote }}) XMITQ({{ channel.xmit_queue | mqsc_quote }})
+      {% else %}
+      DEFINE CHANNEL({{ channel.name | mqsc_quote }}) CHLTYPE({{ channel.type | mqsc_enum(["SDR", "RCVR"]) }})
+      {% endif %}
+    expand_argument_vars: false
+  loop: "{{ mq_channel }}"
+  loop_control:
+    loop_var: channel
+    index_var: channel_index
+    label: "{{ channel.name }} on {{ channel.host_qmgr }}"
+  become_user: "{{ mq_user }}"
+  environment:
+    LANG: C
+    LC_ALL: C
+  when:
+    - not ansible_check_mode
+    - channel_check.results[channel_index].rc == 10
+
+- name: Report channels that would be created in check mode
+  ansible.builtin.debug:
+    msg: "Would create channel {{ channel.name }} on {{ channel.host_qmgr }}"
+  loop: "{{ mq_channel }}"
+  loop_control:
+    loop_var: channel
+    index_var: channel_index
+    label: "{{ channel.name }} on {{ channel.host_qmgr }}"
+  when:
+    - ansible_check_mode
+    - channel_check.results[channel_index].rc == 10
+  changed_when: true

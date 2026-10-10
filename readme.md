@@ -361,6 +361,11 @@ No changes to the main playbook are required simply because another server is ad
 
 Running the Automation
 
+All discovered configuration is validated before configuration tasks begin.
+Missing server directories and unrecognized YAML filenames fail explicitly;
+individual supported object files remain optional. Validation failure stops
+the play before changes are made on any host in the current batch.
+
 Run the main playbook with:
 
 ansible-playbook -i inventory/hosts playbooks/configure_mq.yml
@@ -541,6 +546,19 @@ Future functionality should be driven by real operational requirements rather th
 
 Contributing
 
+Run the isolated regression suite on a Linux, macOS, or WSL Ansible controller:
+
+```sh
+python -m pip install 'ansible-core>=2.18,<2.20' -r requirements-test.txt
+python -m unittest discover -s tests -v
+```
+
+The tests use temporary local inventories and fixtures. They never connect to
+the sample MQ servers. GitHub Actions runs the suite on Ansible Core 2.18 and
+2.19. Native Windows cannot execute the Ansible integration tests; those tests
+report an explicit skip there. These tests do not replace integration testing
+against the IBM MQ versions used in your environment.
+
 Suggestions, feedback, and improvements are welcome.
 
 If you work with IBM MQ, Ansible, or enterprise messaging environments, feedback on the configuration model, validation approach, and operational safety is especially useful.
@@ -561,6 +579,45 @@ Author
 Ankur Lodhi
 
 Middleware / IBM MQ / MFT / Automation
+
+MQSC execution and security behavior
+
+Run this project from an Ansible control node using ansible-core 2.18 or 2.19.
+Commands run as the configured `mq_user` through Ansible privilege escalation.
+`mq_dir` must contain the target installation's `runmqsc` executable. MQSC is
+passed on standard input without a shell; string values use the MQSC quoting
+filter in `playbooks/filter_plugins/mqsc.py`. Numeric and keyword parameters
+are validated before rendering.
+
+Presence checks accept a missing-object response only when both the return code
+and the expected MQ message code agree. Other failures stop the play. Queue
+checks do not request MAXDEPTH, which does not apply to alias and remote queues.
+Missing local/transmission queues default to MAXDEPTH(5000), and aliases default
+to TARGETTYPE(QUEUE). New listener definitions use the declared host_address.
+
+`--check` performs read-only presence/status queries and reports proposed creates
+and listener starts. It still needs access to running queue managers. It never
+sends DEFINE, SET, START, or REFRESH commands.
+
+Existing object attributes and CHLAUTH payloads are preserved. In particular,
+an existing BLOCKUSER record is left unchanged even if its USERLIST differs.
+AUTHREC is an exception: AUTHADD remains additive and is applied on every normal
+run; check mode reports that proposed operation without claiming to detect a
+permission difference. This project does not remove permissions or reconcile
+security drift.
+
+CHLAUTH supports ACTION(ADD) for BLOCKUSER and SSLPEERMAP. SSLPEERMAP identity
+includes the exact channel profile, sslpeer, optional sslcerti (omitted means
+blank), and optional address (default `*`). USERSRC(MAP) requires mcauser.
+Unsupported security fields fail validation instead of being silently ignored.
+No TLS security refresh is sent after CHLAUTH changes.
+
+SSLPEERMAP display parsing fails when required identity attributes are missing,
+malformed, or wrapped across output lines. DN values are compared literally;
+the playbook does not canonicalize equivalent distinguished names. A deployment
+must verify the display format and message codes on its supported MQ versions.
+The automated tests exercise real Ansible with local simulated runmqsc responses;
+they do not certify behavior against a live IBM MQ installation.
 
 License
 

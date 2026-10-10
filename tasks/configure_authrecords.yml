@@ -1,13 +1,34 @@
 ---
-  - name: load MQ authority records
-    ansible.builtin.include_vars:
-      file: ../objects/{{ inventory_hostname }}/mq_auth_records.yml
-  
-  - name: configure auth records
-    ansible.builtin.shell: | 
-      echo "SET AUTHREC PROFILE ('{{ auth.profile }}') OBJTYPE({{ auth.objtype }}) PRINCIPAL('{{ auth.principal }}') AUTHADD( {{ auth.authadd | join(',') }})" | 
-      sudo -u mqm {{ mq_dir }}/runmqsc {{ auth.host_qmgr }}
-    loop: "{{ mq_auth_records }}"
-    loop_control:
-      loop_var: auth
-      label: "{{ auth.principal }} -> {{ auth.objtype }} {{ auth.profile }} on {{ auth.host_qmgr }}"
+- name: Load MQ authority records
+  ansible.builtin.include_vars:
+    file: "../objects/{{ inventory_hostname }}/mq_auth_records.yml"
+
+- name: Report authority-record changes during check mode
+  changed_when: true
+  ansible.builtin.debug:
+    msg: "Would apply additive AUTHREC for {{ auth.principal }} on {{ auth.objtype }} {{ auth.profile }} at {{ auth.host_qmgr }}."
+  loop: "{{ mq_auth_records }}"
+  loop_control:
+    loop_var: auth
+    label: "{{ auth.principal }} -> {{ auth.objtype }} {{ auth.profile }} on {{ auth.host_qmgr }}"
+  when: ansible_check_mode
+
+- name: Configure authority records
+  ansible.builtin.command:
+    argv:
+      - "{{ mq_dir }}/runmqsc"
+      - "-e"
+      - "{{ auth.host_qmgr }}"
+    stdin: >-
+      SET AUTHREC PROFILE({{ auth.profile | mqsc_quote }}) OBJTYPE({{ auth.objtype | mqsc_enum(['AUTHINFO', 'CHANNEL', 'CLNTCONN', 'COMMINFO', 'LISTENER', 'NAMELIST', 'PROCESS', 'QUEUE', 'QMGR', 'RQMNAME', 'SERVICE', 'TOPIC']) }}) PRINCIPAL({{ auth.principal | mqsc_quote }}) AUTHADD({{ auth.authadd | map('mqsc_enum', ['NONE', 'ALTUSR', 'BROWSE', 'CHG', 'CLR', 'CONNECT', 'CRT', 'DLT', 'DSP', 'GET', 'INQ', 'PASSALL', 'PASSID', 'SET', 'SETALL', 'SETID', 'PUT', 'RESUME', 'SUB', 'PUB', 'SYSTEM', 'CTRL', 'CTRLX', 'ALL', 'ALLADM', 'ALLMQI']) | join(',') }})
+    expand_argument_vars: false
+  environment:
+    LANG: C
+    LC_ALL: C
+  become: true
+  become_user: "{{ mq_user }}"
+  when: not ansible_check_mode
+  loop: "{{ mq_auth_records }}"
+  loop_control:
+    loop_var: auth
+    label: "{{ auth.principal }} -> {{ auth.objtype }} {{ auth.profile }} on {{ auth.host_qmgr }}"

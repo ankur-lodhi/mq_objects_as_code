@@ -1,27 +1,62 @@
 ---
-  - name: load topic configuration
-    ansible.builtin.include_vars:
-      file: ../objects/{{ inventory_hostname }}/topics.yml
+- name: Load topic configuration
+  ansible.builtin.include_vars:
+    file: ../objects/{{ inventory_hostname }}/topics.yml
 
-  - name: Check topics on Queue managers
-    ansible.builtin.shell: |
-      echo "DIS TOPIC('{{ topic.name }}')" |
-      sudo -u mqm {{ mq_dir }}/runmqsc {{topic.host_qmgr}}
-    loop: "{{ mq_topics }}"
-    loop_control:
-      loop_var: topic
-    register: topic_check
-    failed_when: false
-    changed_when: false
+- name: Check topic existence
+  ansible.builtin.command:
+    argv:
+      - "{{ mq_dir }}/runmqsc"
+      - "-e"
+      - "{{ topic.host_qmgr }}"
+    stdin: "DIS TOPIC({{ topic.name | mqsc_quote }})"
+    expand_argument_vars: false
+  loop: "{{ mq_topics }}"
+  loop_control:
+    loop_var: topic
+    label: "{{ topic.name }} on {{ topic.host_qmgr }}"
+  become_user: "{{ mq_user }}"
+  environment:
+    LANG: C
+    LC_ALL: C
+  check_mode: false
+  register: topic_check
+  changed_when: false
+  failed_when: >-
+    topic_check.rc not in [0, 10] or
+    (topic_check.rc == 10 and
+    ((topic_check.stdout ~ topic_check.stderr) | regex_search('(?m)^\\s*AMQ8147E?:')) is none)
 
-  - name: Creat topics on Queue manager
-    ansible.builtin.shell: |
-      echo "DEFINE TOPIC('{{ topic.name }}') TOPICSTR('{{ topic.topic_str }}')" | 
-      sudo -u mqm {{ mq_dir }}/runmqsc {{ topic.host_qmgr }}
-    loop: "{{ mq_topics }}"
-    loop_control:
-      loop_var: topic
-      index_var: topic_index
-      label: "{{ topic.name }} on {{ topic.host_qmgr }}"
-    when: topic_check.results[topic_index].rc != 0
-    
+- name: Create missing topics
+  ansible.builtin.command:
+    argv:
+      - "{{ mq_dir }}/runmqsc"
+      - "-e"
+      - "{{ topic.host_qmgr }}"
+    stdin: "DEFINE TOPIC({{ topic.name | mqsc_quote }}) TOPICSTR({{ topic.topic_str | mqsc_quote }})"
+    expand_argument_vars: false
+  loop: "{{ mq_topics }}"
+  loop_control:
+    loop_var: topic
+    index_var: topic_index
+    label: "{{ topic.name }} on {{ topic.host_qmgr }}"
+  become_user: "{{ mq_user }}"
+  environment:
+    LANG: C
+    LC_ALL: C
+  when:
+    - not ansible_check_mode
+    - topic_check.results[topic_index].rc == 10
+
+- name: Report topics that would be created in check mode
+  ansible.builtin.debug:
+    msg: "Would create topic {{ topic.name }} on {{ topic.host_qmgr }}"
+  loop: "{{ mq_topics }}"
+  loop_control:
+    loop_var: topic
+    index_var: topic_index
+    label: "{{ topic.name }} on {{ topic.host_qmgr }}"
+  when:
+    - ansible_check_mode
+    - topic_check.results[topic_index].rc == 10
+  changed_when: true

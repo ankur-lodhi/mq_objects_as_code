@@ -1,49 +1,129 @@
----    
-    - name: load listener configuration
-      ansible.builtin.include_vars:
-        file: ../objects/{{ inventory_hostname }}/listeners.yml
-    
-    
-    - name: Check listener status
-      ansible.builtin.shell: | 
-        echo "DIS LISTENER('{{ listener.name }}')" | 
-        sudo -u mqm {{ mq_dir }}/runmqsc {{ listener.host_qmgr }}
-      loop: "{{ mq_listeners }}"
-      loop_control: 
-        loop_var: listener
-      register: listener_check
-      failed_when: false
-      changed_when: false
+---
+- name: Load listener configuration
+  ansible.builtin.include_vars:
+    file: ../objects/{{ inventory_hostname }}/listeners.yml
 
-    - name: create MQ listeners 
-      ansible.builtin.shell: | 
-        echo "DEFINE LISTENER('{{ listener.name }}') TRPTYPE(TCP) PORT({{ listener.port}}) CONTROL({{ listener.control }})"|
-        sudo -u mqm {{ mq_dir }}/runmqsc {{ listener.host_qmgr }}
-      loop: "{{ mq_listeners }}"
-      loop_control: 
-        loop_var: listener
-        index_var: listener_index
-        label: "{{ listener.name }} on {{ listener.host_qmgr }}"
-      when: listener_check.results[listener_index].rc !=0
+- name: Check listener definition existence
+  ansible.builtin.command:
+    argv:
+      - "{{ mq_dir }}/runmqsc"
+      - "-e"
+      - "{{ listener.host_qmgr }}"
+    stdin: "DIS LISTENER({{ listener.name | mqsc_quote }})"
+    expand_argument_vars: false
+  loop: "{{ mq_listeners }}"
+  loop_control:
+    loop_var: listener
+    label: "{{ listener.name }} on {{ listener.host_qmgr }}"
+  become_user: "{{ mq_user }}"
+  environment:
+    LANG: C
+    LC_ALL: C
+  check_mode: false
+  register: listener_check
+  changed_when: false
+  failed_when: >-
+    listener_check.rc not in [0, 10] or
+    (listener_check.rc == 10 and
+    ((listener_check.stdout ~ listener_check.stderr) | regex_search('(?m)^\\s*AMQ8147E?:')) is none)
 
-    - name: check listener runtime status 
-      ansible.builtin.shell: | 
-        echo " DIS LSSTATUS('{{ listener.name }}')" | sudo -u mqm {{ mq_dir }}/runmqsc {{ listener.host_qmgr }}
-      loop: "{{ mq_listeners }}"
-      loop_control: 
-        loop_var: listener
-        index_var: listener_index
-        label: "{{ listener.name }} on {{ listener.host_qmgr }}"
-      register: listener_status
-      changed_when: false
-      failed_when: false
+- name: Create missing listeners
+  ansible.builtin.command:
+    argv:
+      - "{{ mq_dir }}/runmqsc"
+      - "-e"
+      - "{{ listener.host_qmgr }}"
+    stdin: >-
+      DEFINE LISTENER({{ listener.name | mqsc_quote }})
+      TRPTYPE(TCP)
+      IPADDR({{ listener.host_address | mqsc_quote }})
+      PORT({{ listener.port | mqsc_integer(1024, 65535) }})
+      CONTROL({{ listener.control | mqsc_enum(["QMGR", "MANUAL", "STARTONLY"]) }})
+    expand_argument_vars: false
+  loop: "{{ mq_listeners }}"
+  loop_control:
+    loop_var: listener
+    index_var: listener_index
+    label: "{{ listener.name }} on {{ listener.host_qmgr }}"
+  become_user: "{{ mq_user }}"
+  environment:
+    LANG: C
+    LC_ALL: C
+  when:
+    - not ansible_check_mode
+    - listener_check.results[listener_index].rc == 10
 
-    - name: start listeners 
-      ansible.builtin.shell: | 
-        echo " START LISTENER('{{ listener.name }}') " | sudo -u mqm {{ mq_dir }}/runmqsc {{ listener.host_qmgr }}
-      loop: "{{ mq_listeners }}"
-      loop_control:
-        loop_var: listener
-        index_var: listener_index
-        label: "{{ listener.name }} on {{ listener.host_qmgr }}"
-      when: "'AMQ8147E' in listener_status.results[listener_index].stdout"
+- name: Report listeners that would be created in check mode
+  ansible.builtin.debug:
+    msg: "Would create listener {{ listener.name }} on {{ listener.host_qmgr }}"
+  loop: "{{ mq_listeners }}"
+  loop_control:
+    loop_var: listener
+    index_var: listener_index
+    label: "{{ listener.name }} on {{ listener.host_qmgr }}"
+  when:
+    - ansible_check_mode
+    - listener_check.results[listener_index].rc == 10
+  changed_when: true
+
+- name: Check runtime status of existing listeners
+  ansible.builtin.command:
+    argv:
+      - "{{ mq_dir }}/runmqsc"
+      - "-e"
+      - "{{ listener.host_qmgr }}"
+    stdin: "DIS LSSTATUS({{ listener.name | mqsc_quote }})"
+    expand_argument_vars: false
+  loop: "{{ mq_listeners }}"
+  loop_control:
+    loop_var: listener
+    index_var: listener_index
+    label: "{{ listener.name }} on {{ listener.host_qmgr }}"
+  become_user: "{{ mq_user }}"
+  environment:
+    LANG: C
+    LC_ALL: C
+  check_mode: false
+  when:
+    - not ansible_check_mode or listener_check.results[listener_index].rc == 0
+  register: listener_status
+  changed_when: false
+  failed_when: >-
+    listener_status.rc not in [0, 10] or
+    (listener_status.rc == 10 and
+    ((listener_status.stdout ~ listener_status.stderr) | regex_search('(?m)^\\s*AMQ8147E?:')) is none)
+
+- name: Start stopped listeners
+  ansible.builtin.command:
+    argv:
+      - "{{ mq_dir }}/runmqsc"
+      - "-e"
+      - "{{ listener.host_qmgr }}"
+    stdin: "START LISTENER({{ listener.name | mqsc_quote }})"
+    expand_argument_vars: false
+  loop: "{{ mq_listeners }}"
+  loop_control:
+    loop_var: listener
+    index_var: listener_index
+    label: "{{ listener.name }} on {{ listener.host_qmgr }}"
+  become_user: "{{ mq_user }}"
+  environment:
+    LANG: C
+    LC_ALL: C
+  when:
+    - not ansible_check_mode
+    - listener_status.results[listener_index].rc == 10
+
+- name: Report listeners that would be started in check mode
+  ansible.builtin.debug:
+    msg: "Would start listener {{ listener.name }} on {{ listener.host_qmgr }}"
+  loop: "{{ mq_listeners }}"
+  loop_control:
+    loop_var: listener
+    index_var: listener_index
+    label: "{{ listener.name }} on {{ listener.host_qmgr }}"
+  when:
+    - ansible_check_mode
+    - listener_check.results[listener_index].rc == 0
+    - listener_status.results[listener_index].rc == 10
+  changed_when: true

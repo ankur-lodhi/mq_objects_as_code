@@ -1,0 +1,58 @@
+---
+- name: Load CHLAUTH records for validation
+  ansible.builtin.include_vars:
+    file: "../objects/{{ inventory_hostname }}/mq_chlauth.yml"
+
+- name: Validate CHLAUTH record collection
+  ansible.builtin.assert:
+    that:
+      - mq_chlauth is defined
+      - mq_chlauth is sequence
+      - mq_chlauth is not string
+      - mq_chlauth is not mapping
+
+- name: Validate CHLAUTH record fields
+  ansible.builtin.assert:
+    that:
+      - rule is mapping
+      - rule.keys() | difference(['channel', 'type', 'action', 'host_qmgr', 'userlist'] if rule.type == 'BLOCKUSER' else ['channel', 'type', 'action', 'host_qmgr', 'sslpeer', 'sslcerti', 'address', 'usersrc', 'mcauser']) | length == 0
+      - rule.type | mqsc_enum(['BLOCKUSER', 'SSLPEERMAP']) is string
+      - rule.action | mqsc_enum(['ADD']) is string
+      - rule.channel is defined
+      - rule.channel is string
+      - rule.channel | length > 0
+      - rule.channel | length <= 20
+      - (rule.channel | mqsc_quote) is string
+      - rule.host_qmgr is defined
+      - rule.host_qmgr is string
+      - rule.host_qmgr | length > 0
+      - rule.host_qmgr | length <= 48
+      - rule.host_qmgr is match('^[A-Za-z0-9._/%$#@]+$')
+      - (rule.host_qmgr | mqsc_quote) is string
+      - rule.type != 'BLOCKUSER' or (rule.userlist | mqsc_quote) is string
+      - rule.type != 'BLOCKUSER' or rule.userlist | length > 0
+      - rule.type != 'SSLPEERMAP' or (rule.sslpeer | mqsc_quote) is string
+      - rule.type != 'SSLPEERMAP' or rule.sslcerti is not defined or rule.sslcerti | length > 0
+      - rule.type != 'SSLPEERMAP' or rule.sslcerti is not defined or (rule.sslcerti | mqsc_quote) is string
+      - rule.type != 'SSLPEERMAP' or rule.sslpeer | length > 0
+      - rule.type != 'SSLPEERMAP' or (rule.address | default('*') | mqsc_quote) is string
+      - rule.type != 'SSLPEERMAP' or (rule.address | default('*') | length > 0 and rule.address | default('*') | length <= 264)
+      - rule.type != 'SSLPEERMAP' or rule.usersrc | mqsc_enum(['MAP', 'NOACCESS', 'CHANNEL']) is string
+      - rule.type != 'SSLPEERMAP' or rule.usersrc != 'MAP' or (rule.mcauser | mqsc_quote) is string
+      - rule.type != 'SSLPEERMAP' or rule.usersrc != 'MAP' or rule.mcauser | length > 0
+      - rule.type != 'SSLPEERMAP' or rule.usersrc == 'MAP' or rule.mcauser is not defined
+    fail_msg: "Invalid CHLAUTH record; check TYPE, ADD action, identity fields, USERSRC, and queue-manager name."
+  loop: "{{ mq_chlauth }}"
+  loop_control:
+    loop_var: rule
+    label: "{{ rule.type | default('unknown') }} {{ rule.channel | default('unnamed') }}"
+
+- name: Reject duplicate CHLAUTH record identities
+  ansible.builtin.assert:
+    that:
+      - mq_chlauth | mqsc_chlauth_identity_count(rule) == 1
+    fail_msg: "Duplicate CHLAUTH identity: {{ rule.type }} {{ rule.channel }} on {{ rule.host_qmgr }}"
+  loop: "{{ mq_chlauth }}"
+  loop_control:
+    loop_var: rule
+    label: "{{ rule.type }} {{ rule.channel }} on {{ rule.host_qmgr }}"

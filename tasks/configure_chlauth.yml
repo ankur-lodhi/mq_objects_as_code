@@ -1,49 +1,134 @@
 ---
-  - name: Load CHLAUTH records
-    ansible.builtin.include_vars:
-      file: ../objects/{{ inventory_hostname }}/mq_chlauth.yml
+- name: Load CHLAUTH records
+  ansible.builtin.include_vars:
+    file: "../objects/{{ inventory_hostname }}/mq_chlauth.yml"
 
-  - name: check CHLAUTH records
-    ansible.builtin.shell: | 
-      {% if rule.type == 'BLOCKUSER' %}
-      echo "DIS CHLAUTH('{{ rule.channel }}') TYPE(BLOCKUSER) USERLIST('{{rule.userlist}}')" | 
-      sudo -u mqm {{ mq_dir }}/runmqsc {{ rule.host_qmgr }}
+- name: Check exact BLOCKUSER record identity
+  ansible.builtin.command:
+    argv:
+      - "{{ mq_dir }}/runmqsc"
+      - "-e"
+      - "{{ rule.host_qmgr }}"
+    stdin: >-
+      DISPLAY CHLAUTH({{ rule.channel | mqsc_quote }}) TYPE(BLOCKUSER) MATCH(EXACT) ALL
+    expand_argument_vars: false
+  check_mode: false
+  environment:
+    LANG: C
+    LC_ALL: C
+  become: true
+  become_user: "{{ mq_user }}"
+  loop: "{{ mq_chlauth | selectattr('type', 'equalto', 'BLOCKUSER') | list }}"
+  loop_control:
+    loop_var: rule
+    label: "{{ rule.type }} {{ rule.channel }} on {{ rule.host_qmgr }}"
+  register: blockuser_check
+  changed_when: false
+  failed_when: >-
+    blockuser_check.rc not in [0, 10] or
+    (blockuser_check.rc == 10 and
+     (blockuser_check.stdout | regex_search('(?m)^\s*AMQ8884E?:')) is none) or
+    (blockuser_check.rc == 0 and
+     (blockuser_check.stdout | regex_search('(?m)^\s*AMQ8878I?:')) is none)
 
-      {% elif rule.type == 'SSLPEERMAP' %}
-      echo "DIS CHLAUTH('{{ rule.channel }}') TYPE(SSLPEERMAP) SSLPEER('{{ rule.sslpeer }}')" | 
-      sudo -u mqm {{ mq_dir }}/runmqsc {{ rule.host_qmgr }}
-      {% endif %}
-    loop: "{{ mq_chlauth }}"
-    loop_control: 
-      loop_var: rule 
-      label: "{{ rule.type }} {{ rule.channel }} on {{ rule.host_qmgr }}"
-    register: chlauth_check
-    changed_when: false
-    failed_when: false
+- name: Check exact SSLPEERMAP record identity
+  ansible.builtin.command:
+    argv:
+      - "{{ mq_dir }}/runmqsc"
+      - "-e"
+      - "{{ rule.host_qmgr }}"
+    stdin: >-
+      DISPLAY CHLAUTH({{ rule.channel | mqsc_quote }}) TYPE(SSLPEERMAP) MATCH(EXACT) ALL
+    expand_argument_vars: false
+  check_mode: false
+  environment:
+    LANG: C
+    LC_ALL: C
+  become: true
+  become_user: "{{ mq_user }}"
+  loop: "{{ mq_chlauth | selectattr('type', 'equalto', 'SSLPEERMAP') | list }}"
+  loop_control:
+    loop_var: rule
+    label: "{{ rule.type }} {{ rule.channel }} {{ rule.sslpeer }} on {{ rule.host_qmgr }}"
+  register: sslpeermap_check
+  changed_when: false
+  failed_when: >-
+    sslpeermap_check.rc not in [0, 10] or
+    (sslpeermap_check.rc == 10 and
+     (sslpeermap_check.stdout | regex_search('(?m)^\s*AMQ8884E?:')) is none) or
+    (sslpeermap_check.rc == 0 and
+     (sslpeermap_check.stdout | regex_search('(?m)^\s*AMQ8878I?:')) is none)
 
-  - name: implement CHLAUTH records
-    ansible.builtin.shell: | 
-      {% if rule.type == 'BLOCKUSER' %}
-      echo "SET CHLAUTH('{{ rule.channel }}') TYPE(BLOCKUSER) USERLIST('{{ rule.userlist }}') ACTION({{ rule.action }})" | 
-      sudo -u mqm {{ mq_dir }}/runmqsc {{ rule.host_qmgr }}
+- name: Report missing BLOCKUSER records during check mode
+  changed_when: true
+  ansible.builtin.debug:
+    msg: "Would add BLOCKUSER record {{ rule.channel }} on {{ rule.host_qmgr }}."
+  loop: "{{ mq_chlauth | selectattr('type', 'equalto', 'BLOCKUSER') | list }}"
+  loop_control:
+    loop_var: rule
+    index_var: rule_index
+  when:
+    - ansible_check_mode
+    - (blockuser_check.results[rule_index].stdout | regex_search('(?m)^\s*AMQ8884E?:')) is not none
 
-      {% elif rule.type == 'SSLPEERMAP' %}
-      echo "SET CHLAUTH('{{ rule.channel }}') TYPE(SSLPEERMAP) SSLPEER('{{ rule.sslpeer }}') USERSRC({{ rule.usersrc }}) ACTION({{ rule.action }})" | 
-      sudo -u mqm {{ mq_dir }}/runmqsc {{ rule.host_qmgr }}
-      {% endif %}
-    loop: "{{ mq_chlauth }}"
-    loop_control:
-      loop_var: rule 
-      index_var: rule_index
-      label: "{{ rule.type }} {{ rule.channel }} on {{ rule.host_qmgr }}"
-    when: "'AMQ8878I' not in chlauth_check.results[rule_index].stdout"
-    register: chlauth_create
+- name: Add missing BLOCKUSER records
+  ansible.builtin.command:
+    argv:
+      - "{{ mq_dir }}/runmqsc"
+      - "-e"
+      - "{{ rule.host_qmgr }}"
+    stdin: >-
+      SET CHLAUTH({{ rule.channel | mqsc_quote }}) TYPE(BLOCKUSER) USERLIST({{ rule.userlist | mqsc_quote }}) ACTION(ADD)
+    expand_argument_vars: false
+  environment:
+    LANG: C
+    LC_ALL: C
+  become: true
+  become_user: "{{ mq_user }}"
+  loop: "{{ mq_chlauth | selectattr('type', 'equalto', 'BLOCKUSER') | list }}"
+  loop_control:
+    loop_var: rule
+    index_var: rule_index
+    label: "{{ rule.type }} {{ rule.channel }} on {{ rule.host_qmgr }}"
+  when:
+    - not ansible_check_mode
+    - (blockuser_check.results[rule_index].stdout | regex_search('(?m)^\s*AMQ8884E?:')) is not none
 
-  - name: Refresh Security on queue managers
-    ansible.builtin.shell: | 
-      echo "REFRESH SECURITY TYPE(SSL)" | 
-      sudo -u mqm {{ mq_dir }}/runmqsc {{ qmgr }}
-    loop: "{{ mq_chlauth | map(attribute= 'host_qmgr') | unique | list }}"
-    loop_control: 
-      loop_var: qmgr
-      label: "{{ qmgr }}"
+- name: Report missing SSLPEERMAP identities during check mode
+  changed_when: true
+  ansible.builtin.debug:
+    msg: "Would add SSLPEERMAP identity {{ rule.channel }} / {{ rule.sslpeer }} on {{ rule.host_qmgr }}."
+  loop: "{{ mq_chlauth | selectattr('type', 'equalto', 'SSLPEERMAP') | list }}"
+  loop_control:
+    loop_var: rule
+    index_var: rule_index
+  when:
+    - ansible_check_mode
+    - >-
+      (sslpeermap_check.results[rule_index].stdout | regex_search('(?m)^\s*AMQ8884E?:')) is not none or
+      not (sslpeermap_check.results[rule_index].stdout | mqsc_display_has_sslpeermap(rule.channel, rule.sslpeer, rule.sslcerti | default(''), rule.address | default('*')))
+
+- name: Add missing SSLPEERMAP identities
+  ansible.builtin.command:
+    argv:
+      - "{{ mq_dir }}/runmqsc"
+      - "-e"
+      - "{{ rule.host_qmgr }}"
+    stdin: >-
+      SET CHLAUTH({{ rule.channel | mqsc_quote }}) TYPE(SSLPEERMAP) SSLPEER({{ rule.sslpeer | mqsc_quote }}) ADDRESS({{ rule.address | default('*') | mqsc_quote }}){% if rule.sslcerti is defined %} SSLCERTI({{ rule.sslcerti | mqsc_quote }}){% endif %} USERSRC({{ rule.usersrc | mqsc_enum(['MAP', 'NOACCESS', 'CHANNEL']) }}){% if rule.usersrc == 'MAP' %} MCAUSER({{ rule.mcauser | mqsc_quote }}){% endif %} ACTION(ADD)
+    expand_argument_vars: false
+  environment:
+    LANG: C
+    LC_ALL: C
+  become: true
+  become_user: "{{ mq_user }}"
+  loop: "{{ mq_chlauth | selectattr('type', 'equalto', 'SSLPEERMAP') | list }}"
+  loop_control:
+    loop_var: rule
+    index_var: rule_index
+    label: "{{ rule.type }} {{ rule.channel }} {{ rule.sslpeer }} on {{ rule.host_qmgr }}"
+  when:
+    - not ansible_check_mode
+    - >-
+      (sslpeermap_check.results[rule_index].stdout | regex_search('(?m)^\s*AMQ8884E?:')) is not none or
+      not (sslpeermap_check.results[rule_index].stdout | mqsc_display_has_sslpeermap(rule.channel, rule.sslpeer, rule.sslcerti | default(''), rule.address | default('*')))

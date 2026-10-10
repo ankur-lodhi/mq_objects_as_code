@@ -1,174 +1,108 @@
 ---
 - name: Configure IBM MQ objects
   hosts: mqservers
+  gather_facts: false
+  strategy: linear
+  any_errors_fatal: true
   become: true
   become_method: sudo
   become_user: root
 
-
   tasks:
-    - name: Discover MQ object files. 
-      ansible.builtin.find:
+    - name: Validate the server directory name
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname is match('^[A-Za-z0-9][A-Za-z0-9_.-]*$')
+        fail_msg: "Inventory hostnames must be plain server directory names."
+
+    - name: Check the controller's object directory
+      ansible.builtin.stat:
         path: "{{ playbook_dir }}/../objects/{{ inventory_hostname }}"
-        pattern: "*.yml"
+      delegate_to: localhost
+      become: false
+      register: mq_object_directory
+
+    - name: Require an object directory for each server
+      ansible.builtin.assert:
+        that:
+          - mq_object_directory.stat.isdir | default(false)
+        fail_msg: "Missing objects/{{ inventory_hostname }} directory on the controller."
+
+    - name: Discover MQ object files
+      ansible.builtin.find:
+        paths: "{{ playbook_dir }}/../objects/{{ inventory_hostname }}"
+        patterns: ['*.yml', '*.yaml']
         file_type: file
         recurse: false
       delegate_to: localhost
       become: false
       register: mq_object_files
 
-    - name: Build list of MQ object files.
+    - name: Build the list of MQ object files
       ansible.builtin.set_fact:
-        mq_object_file_names: "{{ mq_object_files.files | map (attribute ='path') | map ( 'basename' ) | list }}"
-    
+        mq_object_file_names: "{{ mq_object_files.files | map(attribute='path') | map('basename') | list }}"
 
+    - name: Reject unrecognized object files
+      ansible.builtin.assert:
+        that:
+          - mq_object_file_names | difference(mq_supported_files) | length == 0
+        fail_msg: "Unsupported object files: {{ mq_object_file_names | difference(mq_supported_files) }}"
+      vars:
+        mq_supported_files:
+          - queues.yml
+          - channels.yml
+          - listeners.yml
+          - topics.yml
+          - subscriptions.yml
+          - mq_auth_records.yml
+          - mq_chlauth.yml
+
+    # Complete every available validation before the first MQ command. With
+    # linear execution and any_errors_fatal, a bad host also stops its peers.
     - name: Validate queue configuration
-      ansible.builtin.include_tasks: 
-        file: ../validation/queue_validation.yml
+      ansible.builtin.include_tasks: ../validation/queue_validation.yml
       when: "'queues.yml' in mq_object_file_names"
 
+    - name: Validate channel configuration
+      ansible.builtin.include_tasks: ../validation/validate_channels.yml
+      when: "'channels.yml' in mq_object_file_names"
 
-    - name: configure queue
-      ansible.builtin.include_tasks: 
-        file: ../tasks/configure_queues.yml
+    - name: Validate listener configuration
+      ansible.builtin.include_tasks: ../validation/validate_listeners.yml
+      when: "'listeners.yml' in mq_object_file_names"
+
+    - name: Validate topic configuration
+      ansible.builtin.include_tasks: ../validation/validate_topics.yml
+      when: "'topics.yml' in mq_object_file_names"
+
+    - name: Validate subscription configuration
+      ansible.builtin.include_tasks: ../validation/validate_subscriptions.yml
+      when: "'subscriptions.yml' in mq_object_file_names"
+
+    - name: Configure queues
+      ansible.builtin.include_tasks: ../tasks/configure_queues.yml
       when: "'queues.yml' in mq_object_file_names"
 
-    - name: validate channel configuration
-      ansible.builtin.include_tasks:
-        file: ../validation/validate_channels.yml
-      when: "'channels.yml' in mq_object_file_names"
-    
-    - name: configure channel
-      ansible.builtin.include_tasks: 
-        file: ../tasks/configure_channels.yml
+    - name: Configure channels
+      ansible.builtin.include_tasks: ../tasks/configure_channels.yml
       when: "'channels.yml' in mq_object_file_names"
 
-    - name: validate listener configurations
-      ansible.builtin.include_tasks:
-        file: ../validation/validate_listeners.yml
+    - name: Configure listeners
+      ansible.builtin.include_tasks: ../tasks/configure_listeners.yml
       when: "'listeners.yml' in mq_object_file_names"
 
-    - name: configure listener
-      ansible.builtin.include_tasks:
-        file: ../tasks/configure_listeners.yml
-      when: "'listeners.yml' in mq_object_file_names"
-
-    - name: Validate topic configurations
-      ansible.builtin.include_tasks: 
-        file: ../validation/validate_topics.yml
+    - name: Configure topics
+      ansible.builtin.include_tasks: ../tasks/configure_topics.yml
       when: "'topics.yml' in mq_object_file_names"
 
-    - name: configure topics 
-      ansible.builtin.include_tasks:
-        file: ../tasks/configure_topics.yml
-      when: "'topics.yml' in mq_object_file_names"
-
-    - name: validate Subscription configurations
-      ansible.builtin.include_tasks:
-        file: ../validation/validate_subscriptions.yml
+    - name: Configure subscriptions
+      ansible.builtin.include_tasks: ../tasks/configure_subscriptions.yml
       when: "'subscriptions.yml' in mq_object_file_names"
 
-    - name: configure mq_subscriptions 
-      ansible.builtin.include_tasks:
-        file: ../tasks/configure_subscriptions.yml
-      when: "'subscriptions.yml' in mq_object_file_names"
-
-    - name: configure auth records 
-      ansible.builtin.include_tasks:
-        file: ../tasks/configure_authrecords.yml
+    - name: Configure authority records
+      ansible.builtin.include_tasks: ../tasks/configure_authrecords.yml
       when: "'mq_auth_records.yml' in mq_object_file_names"
 
-    - name: configure CHLAUTH records
-      ansible.builtin.include_tasks:
-        file: ../tasks/configure_chlauth.yml
+    - name: Configure channel authentication records
+      ansible.builtin.include_tasks: ../tasks/configure_chlauth.yml
       when: "'mq_chlauth.yml' in mq_object_file_names"
-    
-
-
-    # - name: check queue status
-    #   ansible.builtin.shell: |
-    #     echo "DIS QUEUE('{{ queue.name }}') MAXDEPTH" |
-    #     sudo -u mqm {{ mq_dir }}/runmqsc {{ queue.host_qmgr }}
-    #   loop: "{{ mq_queues }}"
-    #   loop_control:
-    #     loop_var: queue
-    #   register: queue_check
-    #   changed_when: false
-    #   failed_when: false
-
-
-    # - name: Check channel status
-    #   ansible.builtin.shell: |
-    #     echo "DIS CHANNEL('{{ channel.name }}')" |
-    #     sudo -u mqm {{ mq_dir }}/runmqsc {{ channel.host_qmgr }}
-    #   loop: "{{ mq_channel }}"
-    #   loop_control:
-    #     loop_var: channel
-    #   register: channel_check
-    #   failed_when: false
-    #   changed_when: false
-
-    # - name: Check listener status
-    #   ansible.builtin.shell: | 
-    #     echo "DIS LISTENER('{{ listener.name }}')" | 
-    #     sudo -u mqm {{ mq_dir }}/runmqsc {{ listener.host_qmgr }}
-    #   loop: "{{ mq_listeners }}"
-    #   loop_control: 
-    #     loop_var: listener
-    #   register: listener_check
-    #   failed_when: false
-    #   changed_when: false
-
-
-    # - name: Create Queues
-    #   ansible.builtin.shell: |
-    #     {% if queue.type == 'xmitq' %}
-    #     echo "DEFINE QL('{{ queue.name }}') MAXDEPTH({{ queue.max_depth }}) USAGE(XMITQ)"|
-    #     sudo -u mqm {{ mq_dir }}/runmqsc {{ queue.host_qmgr }}
-
-    #     {% elif queue.type == 'remote' %}
-    #     echo "DEFINE QREMOTE('{{ queue.name }}') RNAME('{{ queue.rname }}') RQMNAME('{{ queue.remote_qmgr }}') XMITQ('{{ queue.xmit_queue }}') " |
-    #     sudo -u mqm {{ mq_dir }}/runmqsc {{ queue.host_qmgr }}
-
-    #     {% elif queue.type == 'alias' %}
-    #     echo "DEFINE QALIAS('{{ queue.name }}') TARGQ('{{ queue.target_queue }}')" |
-    #     sudo -u mqm {{ mq_dir }}/runmqsc {{ queue.host_qmgr}}
-
-    #     {% else %}
-    #     echo "DEFINE QL('{{ queue.name }}') MAXDEPTH({{ queue.max_depth }})" |
-    #     sudo -u mqm {{ mq_dir }}/runmqsc {{ queue.host_qmgr }}
-    #     {% endif %}
-
-    #   loop: "{{ mq_queues }}"
-    #   loop_control:
-    #     loop_var: queue
-    #     index_var: queue_index
-    #     label: "{{ queue.name }} on {{ queue.host_qmgr }}"
-    #   when: queue_check.results[queue_index].rc != 0
-
-    # - name: Create MQ Channel
-    #   ansible.builtin.shell: |
-    #     {%if channel.type == 'SDR' %}
-    #     echo "DEFINE CHANNEL('{{ channel.name }}') CHLTYPE({{ channel.type }}) CONNAME('{{ channel.target_host }}({{ channel.target_port }})') XMITQ('{{ channel.xmit_queue }}')" |
-    #     sudo -u mqm {{ mq_dir }}/runmqsc {{ channel.host_qmgr }}
-    #     {% else %}
-    #     echo "DEFINE CHANNEL('{{ channel.name }}') CHLTYPE({{ channel.type }})" |
-    #     sudo -u mqm {{ mq_dir }}/runmqsc {{ channel.host_qmgr }}
-    #     {% endif %}
-    #   loop: "{{ mq_channel }}"
-    #   loop_control:
-    #     loop_var: channel
-    #     index_var: channel_index
-    #     label: "{{ channel.name }} on {{ channel.host_qmgr }}"
-    #   when: channel_check.results[channel_index].rc !=0
-
-    # - name: create MQ listeners 
-    #   ansible.builtin.shell: | 
-    #     echo "DEFINE LISTENER('{{ listener.name }}') TRPTYPE(TCP) PORT({{ listener.port}}) CONTROL({{ listener.control }})"|
-    #     sudo -u mqm {{ mq_dir }}/runmqsc {{ listener.host_qmgr }}
-    #   loop: "{{ mq_listeners }}"
-    #   loop_control: 
-    #     loop_var: listener
-    #     index_var: listener_index
-    #     label: "{{ listener.name }} on {{ listener.host_qmgr }}"
-    #   when: listener_check.results[listener_index].rc !=0

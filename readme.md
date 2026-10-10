@@ -361,6 +361,11 @@ No changes to the main playbook are required simply because another server is ad
 
 Running the Automation
 
+All discovered configuration is validated before configuration tasks begin.
+Missing server directories and unrecognized YAML filenames fail explicitly;
+individual supported object files remain optional. Validation failure stops
+the play before changes are made on any host in the current batch.
+
 Run the main playbook with:
 
 ansible-playbook -i inventory/hosts playbooks/configure_mq.yml
@@ -540,6 +545,19 @@ Integration with enterprise automation pipelines
 Future functionality should be driven by real operational requirements rather than adding features simply for completeness.
 
 Contributing
+
+Run the isolated regression suite on a Linux, macOS, or WSL Ansible controller:
+
+```sh
+python -m pip install 'ansible-core>=2.18,<2.20' -r requirements-test.txt
+python -m unittest discover -s tests -v
+```
+
+The tests use temporary local inventories and fixtures. They never connect to
+the sample MQ servers. GitHub Actions runs the suite on Ansible Core 2.18 and
+2.19. Native Windows cannot execute the Ansible integration tests; those tests
+report an explicit skip there. These tests do not replace integration testing
+against the IBM MQ versions used in your environment.
 
 Suggestions, feedback, and improvements are welcome.
 
